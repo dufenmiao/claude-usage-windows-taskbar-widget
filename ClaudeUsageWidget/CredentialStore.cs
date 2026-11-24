@@ -17,6 +17,7 @@ internal sealed class OAuthCredential
     public string AccessToken { get; set; } = "";
     public string RefreshToken { get; set; } = "";
     public long ExpiresAt { get; set; } // Unix epoch milliseconds
+    public string[] Scopes { get; set; } = []; // Claude OAuth scopes, sent back on refresh
     public string SourcePath { get; set; } = ""; // "wsl:~/.claude/.credentials.json" or Windows path
 
     public bool IsExpired =>
@@ -122,15 +123,13 @@ internal static class CredentialStore
                 root = new JsonObject();
             }
 
-            root["claudeAiOauth"] = new JsonObject
-            {
-                ["accessToken"] = credential.AccessToken,
-                ["refreshToken"] = credential.RefreshToken,
-                ["expiresAt"] = credential.ExpiresAt
-            };
+            ApplyCredential(root, credential);
 
+            // Write to a temp file and swap it in, so the Claude CLI never reads a half-written file.
             var options = new JsonSerializerOptions { WriteIndented = true };
-            File.WriteAllText(credential.SourcePath, root.ToJsonString(options));
+            var tmpPath = credential.SourcePath + ".tmp";
+            File.WriteAllText(tmpPath, root.ToJsonString(options));
+            File.Move(tmpPath, credential.SourcePath, overwrite: true);
         }
         catch
         {
@@ -148,12 +147,7 @@ internal static class CredentialStore
                 ? new JsonObject()
                 : JsonNode.Parse(existingJson) ?? new JsonObject();
 
-            root["claudeAiOauth"] = new JsonObject
-            {
-                ["accessToken"] = credential.AccessToken,
-                ["refreshToken"] = credential.RefreshToken,
-                ["expiresAt"] = credential.ExpiresAt
-            };
+            ApplyCredential(root, credential);
 
             var options = new JsonSerializerOptions { WriteIndented = true };
             var newJson = root.ToJsonString(options);
@@ -178,6 +172,23 @@ internal static class CredentialStore
         {
             // Best-effort write-back
         }
+    }
+
+    /// <summary>Updates the token fields inside claudeAiOauth and keeps every other field the CLI
+    /// stores there (subscriptionType, rateLimitTier, accountUuid, …).</summary>
+    private static void ApplyCredential(JsonNode root, OAuthCredential credential)
+    {
+        if (root["claudeAiOauth"] is not JsonObject oauth)
+        {
+            oauth = new JsonObject();
+            root["claudeAiOauth"] = oauth;
+        }
+
+        oauth["accessToken"] = credential.AccessToken;
+        oauth["refreshToken"] = credential.RefreshToken;
+        oauth["expiresAt"] = credential.ExpiresAt;
+        if (credential.Scopes.Length > 0)
+            oauth["scopes"] = new JsonArray(credential.Scopes.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
     }
 
     private static readonly string WslExe =
@@ -349,6 +360,11 @@ internal static class CredentialStore
             var accessToken = oauth["accessToken"]?.GetValue<string>();
             var refreshToken = oauth["refreshToken"]?.GetValue<string>();
             var expiresAt = oauth["expiresAt"]?.GetValue<long>() ?? 0;
+            var scopes = (oauth["scopes"] as JsonArray)?
+                .Select(s => s?.GetValue<string>())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Select(s => s!)
+                .ToArray() ?? [];
 
             if (string.IsNullOrEmpty(accessToken) || string.IsNullOrEmpty(refreshToken))
                 return null;
@@ -358,6 +374,7 @@ internal static class CredentialStore
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
                 ExpiresAt = expiresAt,
+                Scopes = scopes,
                 SourcePath = sourcePath
             };
         }
@@ -368,12 +385,11 @@ internal static class CredentialStore
     }
 
     /// <summary>Single entry point for loading all accounts. Walks <see cref="AllSources"/>
-    /// in a fixed order, skips expired credentials and dedups per account. "First working wins".</summary>
+    /// in a fixed order and dedups per account. "First working wins": valid tokens are taken first;
+    /// an expired Claude token is kept only as a fallback, because ClaudeApiClient can refresh it.</summary>
     public static List<AccountInfo> LoadAllAccounts()
     {
-        var result = new List<AccountInfo>();
-        var seen = new HashSet<string>();
-
+        var candidates = new List<(CredSource Source, OAuthCredential Cred)>();
         foreach (var source in AllSources)
         {
             var read = ReadSource(source);
@@ -382,14 +398,27 @@ internal static class CredentialStore
             var cred = source.Parse(read.Value.Json);
             if (cred == null || string.IsNullOrEmpty(cred.AccessToken)) continue;
             cred.SourcePath = read.Value.SourcePath;
+            candidates.Add((source, cred));
+        }
 
-            if (cred.IsExpired) continue; // skip — another source may have a working token
+        var result = new List<AccountInfo>();
+        var seen = new HashSet<string>();
 
-            var key = MakeDedupKey(source.Service, cred);
-            if (key == null) continue;
-            if (!seen.Add(key)) continue;
+        // Pass 1: valid tokens. Pass 2: expired Claude tokens that still have a refresh token.
+        foreach (var expiredPass in new[] { false, true })
+        {
+            foreach (var (source, cred) in candidates)
+            {
+                if (cred.IsExpired != expiredPass) continue;
+                if (expiredPass && (source.Service != ServiceType.Claude || string.IsNullOrEmpty(cred.RefreshToken)))
+                    continue;
 
-            result.Add(new AccountInfo(source.Service, cred, source.Label));
+                var key = MakeDedupKey(source.Service, cred);
+                if (key == null) continue;
+                if (!seen.Add(key)) continue;
+
+                result.Add(new AccountInfo(source.Service, cred, source.Label));
+            }
         }
 
         return result;

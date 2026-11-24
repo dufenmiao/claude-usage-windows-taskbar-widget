@@ -73,30 +73,21 @@ internal sealed class ClaudeApiClient : IDisposable
 
         if (_credential.IsExpired)
         {
-            if (!await RefreshTokenAsync())
+            // The Claude CLI may have refreshed the token on disk in the meantime. Re-read first:
+            // refresh tokens rotate, so refreshing with a stale one would fail (or race the CLI).
+            var sourcePath = _credential.SourcePath;
+            if (_service == ServiceType.Claude && !string.IsNullOrEmpty(sourcePath))
             {
-                // Refresh failed — maybe Claude CLI externally refreshed the token on disk
-                var sourcePath = _credential?.SourcePath;
-                if (!string.IsNullOrEmpty(sourcePath))
-                {
-                    var freshCred = CredentialStore.LoadCredentialFromPath(sourcePath);
-                    if (freshCred != null && !freshCred.IsExpired &&
-                        freshCred.AccessToken != _credential!.AccessToken)
-                    {
-                        _credentials[_credentialIndex] = freshCred;
-                        // Fall through to attempt fetch with fresh token
-                    }
-                    else
-                    {
-                        LastError = "Token expired and refresh failed";
-                        return _cachedUsage;
-                    }
-                }
-                else
-                {
-                    LastError = "Token expired and refresh failed";
-                    return _cachedUsage;
-                }
+                var diskCred = CredentialStore.LoadCredentialFromPath(sourcePath);
+                if (diskCred != null && diskCred.RefreshToken != _credential.RefreshToken)
+                    _credentials[_credentialIndex] = diskCred;
+            }
+
+            if (_credential!.IsExpired && !await RefreshTokenAsync())
+            {
+                LastError = "Token expired and refresh failed" +
+                            (_lastRefreshError != null ? $" ({_lastRefreshError})" : "");
+                return _cachedUsage;
             }
         }
 
@@ -312,46 +303,73 @@ internal sealed class ClaudeApiClient : IDisposable
         return new UsageData { Limits = limits };
     }
 
+    // Same endpoint and public client id the Claude Code CLI uses for its OAuth refresh.
+    private const string ClaudeTokenUrl = "https://platform.claude.com/v1/oauth/token";
+    private const string ClaudeOAuthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+
+    private string? _lastRefreshError;
+
     public async Task<bool> RefreshTokenAsync()
     {
+        _lastRefreshError = null;
         if (_credential == null || string.IsNullOrEmpty(_credential.RefreshToken))
+        {
+            _lastRefreshError = "no refresh token";
             return false;
+        }
 
         // Codex refresh not implemented — token valid for ~10 days, user can re-login
         if (_service == ServiceType.Codex) return false;
 
         try
         {
-            var content = new FormUrlEncodedContent(new[]
+            var body = new JsonObject
             {
-                new KeyValuePair<string, string>("grant_type", "refresh_token"),
-                new KeyValuePair<string, string>("refresh_token", _credential.RefreshToken)
-            });
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = _credential.RefreshToken,
+                ["client_id"] = ClaudeOAuthClientId,
+            };
+            if (_credential.Scopes.Length > 0)
+                body["scope"] = string.Join(" ", _credential.Scopes);
 
-            var response = await Http.PostAsync(
-                "https://console.anthropic.com/v1/oauth/token", content);
-            response.EnsureSuccessStatusCode();
+            using var content = new StringContent(body.ToJsonString(),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await Http.PostAsync(ClaudeTokenUrl, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                _lastRefreshError = $"HTTP {(int)response.StatusCode}";
+                return false;
+            }
 
             var json = await response.Content.ReadAsStringAsync();
             var doc = JsonNode.Parse(json);
-            if (doc == null) return false;
 
-            var newAccessToken = doc["access_token"]?.GetValue<string>();
-            var newRefreshToken = doc["refresh_token"]?.GetValue<string>();
+            var newAccessToken = doc?["access_token"]?.GetValue<string>();
+            if (string.IsNullOrEmpty(newAccessToken))
+            {
+                _lastRefreshError = "no access_token in response";
+                return false;
+            }
+
+            var newRefreshToken = doc!["refresh_token"]?.GetValue<string>();
             var expiresIn = doc["expires_in"]?.GetValue<long>() ?? 0;
-
-            if (string.IsNullOrEmpty(newAccessToken)) return false;
+            if (expiresIn <= 0) expiresIn = 3600;
+            var scope = doc["scope"]?.GetValue<string>();
 
             _credential.AccessToken = newAccessToken;
             if (!string.IsNullOrEmpty(newRefreshToken))
                 _credential.RefreshToken = newRefreshToken;
             _credential.ExpiresAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (expiresIn * 1000);
+            if (!string.IsNullOrWhiteSpace(scope))
+                _credential.Scopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
+            // Write back so the Claude CLI picks up the rotated refresh token too.
             CredentialStore.SaveCredential(_credential);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _lastRefreshError = ex.Message;
             return false;
         }
     }
