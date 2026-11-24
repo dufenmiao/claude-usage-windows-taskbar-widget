@@ -26,12 +26,13 @@ public partial class SettingsWindow : Window
         ShowCodexCheck.IsChecked = settings.ShowCodex;
         PrimaryMonitorOnlyCheck.IsChecked = settings.PrimaryMonitorOnly;
         FloatingModeCheck.IsChecked = settings.FloatingMode;
+        ScaleSlider.Value = settings.FloatingScale;
         BgOpacitySlider.Value = settings.FloatingBackgroundOpacity;
         WindowOpacitySlider.Value = settings.FloatingWindowOpacity;
-        BgOpacityText.Text = $"{settings.FloatingBackgroundOpacity}%";
-        WindowOpacityText.Text = $"{settings.FloatingWindowOpacity}%";
-        BgOpacitySlider.ValueChanged += (_, _) => SaveOpacity();
-        WindowOpacitySlider.ValueChanged += (_, _) => SaveOpacity();
+        UpdateFloatingOptionTexts();
+        ScaleSlider.ValueChanged += (_, _) => SaveFloatingOptions();
+        BgOpacitySlider.ValueChanged += (_, _) => SaveFloatingOptions();
+        WindowOpacitySlider.ValueChanged += (_, _) => SaveFloatingOptions();
         UpdateFloatingOptionsState();
         FloatingModeCheck.Checked += (_, _) => UpdateFloatingOptionsState();
         FloatingModeCheck.Unchecked += (_, _) => UpdateFloatingOptionsState();
@@ -77,7 +78,15 @@ public partial class SettingsWindow : Window
         SettingsStore.RaiseVisibilityChanged();
     }
 
-    /// <summary>Opacity sliders only matter in floating mode — otherwise dimmed and disabled.</summary>
+    private void UpdateFloatingOptionTexts()
+    {
+        var settings = SettingsStore.Instance;
+        ScaleText.Text = $"{settings.FloatingScale}%";
+        BgOpacityText.Text = $"{settings.FloatingBackgroundOpacity}%";
+        WindowOpacityText.Text = $"{settings.FloatingWindowOpacity}%";
+    }
+
+    /// <summary>Size/opacity sliders only matter in floating mode — otherwise dimmed and disabled.</summary>
     private void UpdateFloatingOptionsState()
     {
         bool on = FloatingModeCheck.IsChecked == true;
@@ -97,13 +106,13 @@ public partial class SettingsWindow : Window
         return $"{parts[0]} · {window}";
     }
 
-    private void SaveOpacity()
+    private void SaveFloatingOptions()
     {
         var settings = SettingsStore.Instance;
+        settings.FloatingScale = (int)ScaleSlider.Value;
         settings.FloatingBackgroundOpacity = (int)BgOpacitySlider.Value;
         settings.FloatingWindowOpacity = (int)WindowOpacitySlider.Value;
-        BgOpacityText.Text = $"{settings.FloatingBackgroundOpacity}%";
-        WindowOpacityText.Text = $"{settings.FloatingWindowOpacity}%";
+        UpdateFloatingOptionTexts();
         settings.Save();
         SettingsStore.RaiseVisibilityChanged();
     }

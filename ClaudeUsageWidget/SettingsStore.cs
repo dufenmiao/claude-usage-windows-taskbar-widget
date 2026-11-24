@@ -27,6 +27,8 @@ internal sealed class SettingsStore
     // Opacity in floating mode (0–100 %): tile background and the whole window.
     public int FloatingBackgroundOpacity { get; set; } = 90;
     public int FloatingWindowOpacity { get; set; } = 100;
+    // Size of the floating tile in percent (100 = same as docked).
+    public int FloatingScale { get; set; } = 100;
 
     // Labels of rows the user has hidden (e.g. "session-5h")
     public HashSet<string> HiddenLimits { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -84,6 +86,7 @@ internal sealed class SettingsStore
             FloatingY = (int)(key.GetValue("FloatingY", int.MinValue) ?? int.MinValue);
             FloatingBackgroundOpacity = Math.Clamp((int)(key.GetValue("FloatingBackgroundOpacity", 90) ?? 90), 0, 100);
             FloatingWindowOpacity = Math.Clamp((int)(key.GetValue("FloatingWindowOpacity", 100) ?? 100), 20, 100);
+            FloatingScale = Math.Clamp((int)(key.GetValue("FloatingScale", 100) ?? 100), 100, 300);
             var hiddenRaw = key.GetValue(HiddenLimitsValueName) as string;
             if (!string.IsNullOrEmpty(hiddenRaw))
                 foreach (var lbl in hiddenRaw.Split(',', StringSplitOptions.RemoveEmptyEntries))
@@ -108,6 +111,7 @@ internal sealed class SettingsStore
             key.SetValue("FloatingY", FloatingY, RegistryValueKind.DWord);
             key.SetValue("FloatingBackgroundOpacity", FloatingBackgroundOpacity, RegistryValueKind.DWord);
             key.SetValue("FloatingWindowOpacity", FloatingWindowOpacity, RegistryValueKind.DWord);
+            key.SetValue("FloatingScale", FloatingScale, RegistryValueKind.DWord);
             key.SetValue(HiddenLimitsValueName, string.Join(",", HiddenLimits), RegistryValueKind.String);
         }
         catch { }

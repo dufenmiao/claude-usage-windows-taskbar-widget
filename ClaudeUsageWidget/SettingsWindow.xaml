@@ -259,6 +259,19 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="38"/>
                             </Grid.ColumnDefinitions>
+                            <TextBlock Text="Size" Style="{StaticResource Caption}"/>
+                            <Slider x:Name="ScaleSlider" Grid.Column="1" Minimum="100" Maximum="300"
+                                    SmallChange="10" LargeChange="50" IsSnapToTickEnabled="True" TickFrequency="10"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ScaleText" Grid.Column="2" Style="{StaticResource Caption}"
+                                       Foreground="{StaticResource TextBrush}" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Grid Margin="0,2,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="38"/>
+                            </Grid.ColumnDefinitions>
                             <TextBlock Text="Background" Style="{StaticResource Caption}"/>
                             <Slider x:Name="BgOpacitySlider" Grid.Column="1" Minimum="0" Maximum="100"
                                     SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"

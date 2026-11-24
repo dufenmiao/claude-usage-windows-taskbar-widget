@@ -129,6 +129,7 @@ public partial class MainWindow : Window
     private int _maxTrayWidthPx; // largest tray width seen so far — see PositionDocked
     private bool _dragging;
     private bool _appliedFloating;
+    private double _baseHeight = 48; // taskbar height in DIPs (unscaled tile height)
 
     internal MainWindow(IntPtr taskbarHwnd, bool isPrimary)
     {
@@ -350,11 +351,19 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// Window size = tile width × taskbar height, multiplied by FloatingScale in floating mode.
+    /// The tile itself is always laid out at its unscaled size; a LayoutTransform scales it up,
+    /// so text and icons stay crisp vector rendering.
+    /// </summary>
     private void ApplyLayout()
     {
-        double width = SettingsStore.Instance.TileWidth;
-        _panel.SetTileWidth(width);
-        Width = width;
+        var settings = SettingsStore.Instance;
+        double scale = IsFloating ? settings.FloatingScale / 100.0 : 1.0;
+        _panel.SetTileWidth(settings.TileWidth);
+        RootBorder.LayoutTransform = scale == 1.0 ? Transform.Identity : new ScaleTransform(scale, scale);
+        Width = settings.TileWidth * scale;
+        Height = _baseHeight * scale;
         if (IsLoaded) PositionWindow();
     }
 
@@ -457,7 +466,28 @@ public partial class MainWindow : Window
             y = taskbarRect.Top - (int)(Height * s) - (int)(12 * s);
         }
 
+        (x, y) = ClampToWorkArea(x, y);
         MoveTo(x, y);
+    }
+
+    /// <summary>
+    /// Keeps the whole floating window inside the work area of its monitor (e.g. after it was
+    /// scaled up near a screen edge). The saved position is left untouched, so scaling back
+    /// down returns the window to where the user put it.
+    /// </summary>
+    private (int X, int Y) ClampToWorkArea(int x, int y)
+    {
+        var monitor = MonitorFromPoint(new POINT { X = x + 10, Y = y + 10 }, MONITOR_DEFAULTTONEAREST);
+        var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref mi)) return (x, y);
+
+        GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpiX, out _);
+        double s = dpiX / 96.0;
+        int w = (int)Math.Ceiling(Width * s), h = (int)Math.Ceiling(Height * s);
+        var work = mi.rcWork;
+        x = Math.Max(work.Left, Math.Min(x, work.Right - w));
+        y = Math.Max(work.Top, Math.Min(y, work.Bottom - h));
+        return (x, y);
     }
 
     // ── Taskbar position ──────────────────────────────────────────────────────────
@@ -508,7 +538,8 @@ public partial class MainWindow : Window
         if (!GetWindowRect(_taskbarHwnd, out RECT rect)) return;
         int heightPx = rect.Bottom - rect.Top;
         if (heightPx <= 0) return;
-        Height = heightPx / GetMonitorScale();
+        _baseHeight = heightPx / GetMonitorScale();
+        ApplyLayout();
     }
 
     private (bool isBottom, RECT taskbarRect) GetTaskbarInfo()
