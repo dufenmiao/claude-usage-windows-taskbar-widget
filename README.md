@@ -37,7 +37,7 @@ Right-click the widget to open Settings — in floating mode, Ctrl + right-click
 - **Claude / Codex** — show or hide each service
 - **Tile width** — widget width in px
 - **Primary monitor only** — don't show on secondary taskbars (applies after restart)
-- **Floating mode** — detach the widget from the taskbar; it stays on top of other windows and is click-through, so clicks, hover and scrolling go to the app underneath. Hold **Ctrl** to interact with it (a blue outline appears): Ctrl + right-drag moves it, Ctrl + right-click opens Settings; the left button is ignored. Size, background and whole-window opacity are adjustable.
+- **Floating mode** — detach the widget from the taskbar; it stays on top of other windows and is click-through, so clicks, hover and scrolling go to the app underneath. Hold **Ctrl** to interact with it: Ctrl + left-drag moves it, Ctrl + right-click opens Settings. Size, background and whole-window opacity are adjustable.
 - **Limits** — hide individual rows (e.g. Codex 5h)
 - **Notifications** — toast at 75% / 90%, and when a limit resets
 - **Run at startup**

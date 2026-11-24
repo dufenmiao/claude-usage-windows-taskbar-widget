@@ -141,12 +141,14 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         RootBorder.Child = _panel;
+        RootBorder.MouseLeftButtonDown += OnDragButtonDown;
         RootBorder.MouseRightButtonDown += OnRightButtonDown;
-        RootBorder.MouseMove += OnRightDragMove;
-        RootBorder.LostMouseCapture += (_, _) => EndRightDrag(save: true);
+        RootBorder.MouseLeftButtonUp += OnDragButtonUp;
+        RootBorder.MouseMove += OnDragMove;
+        RootBorder.LostMouseCapture += (_, _) => { _rightPending = false; EndDrag(save: true); };
         _panel.MouseLeftButtonDown += (_, e) =>
         {
-            // Floating mode ignores the left button entirely; docked: double-click refreshes.
+            // Docked: double-click refreshes. Floating: the left button only drags.
             if (!IsFloating && e.ClickCount == 2) _ = RefreshAllAsync(force: true);
         };
 
@@ -375,54 +377,81 @@ public partial class MainWindow : Window
         if (IsLoaded) PositionWindow();
     }
 
-    // ── Right button: click = open Settings, hold + drag (floating only) = move ───
+    // ── Mouse: left-drag (floating only) = move, right-click = open Settings ──────
+    // In floating mode the window only receives the mouse while Ctrl is held (see Ctrl mode),
+    // so in practice these are Ctrl + left-drag and Ctrl + right-click.
 
-    private POINT? _rightDownCursor;   // cursor at right-button down (physical px)
-    private RECT _rightDownWindow;     // window rect at right-button down
-    private bool _rightDragMoved;
+    private POINT? _dragStartCursor;   // cursor at left-button down (physical px)
+    private RECT _dragStartWindow;     // window rect at left-button down
+    private bool _dragMoved;
     private const int DragThresholdPx = 4;
 
-    private void OnRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void OnDragButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (!IsFloating) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (!GetCursorPos(out var p) || !GetWindowRect(hwnd, out var r)) return;
-        _rightDownCursor = p;
-        _rightDownWindow = r;
-        _rightDragMoved = false;
+        _dragStartCursor = p;
+        _dragStartWindow = r;
+        _dragMoved = false;
         RootBorder.CaptureMouse();
         e.Handled = true;
     }
 
-    private void OnRightDragMove(object sender, MouseEventArgs e)
+    private void OnDragMove(object sender, MouseEventArgs e)
     {
-        if (_rightDownCursor is not { } start || e.RightButton != MouseButtonState.Pressed) return;
+        if (_dragStartCursor is not { } start || e.LeftButton != MouseButtonState.Pressed) return;
         if (!GetCursorPos(out var p)) return;
         int dx = p.X - start.X, dy = p.Y - start.Y;
-        if (!_rightDragMoved)
+        if (!_dragMoved)
         {
             if (Math.Abs(dx) < DragThresholdPx && Math.Abs(dy) < DragThresholdPx) return;
-            _rightDragMoved = true;
+            _dragMoved = true;
             _dragging = true; // keeps PositionWindow (tray watch timer) from snapping it back
         }
-        MoveTo(_rightDownWindow.Left + dx, _rightDownWindow.Top + dy);
+        MoveTo(_dragStartWindow.Left + dx, _dragStartWindow.Top + dy);
+    }
+
+    private void OnDragButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragStartCursor == null) return;
+        e.Handled = true;
+        EndDrag(save: true);
+    }
+
+    private bool _rightPending; // right button went down on the floating tile, Settings opens on release
+
+    /// <summary>
+    /// Floating: capture on right-button down so the matching button-up is guaranteed to reach us.
+    /// Without capture the up event can get lost right after WS_EX_TRANSPARENT was lifted
+    /// (WPF hasn't seen a mouse move over the window yet).
+    /// </summary>
+    private void OnRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!IsFloating) return;
+        _rightPending = true;
+        RootBorder.CaptureMouse();
+        e.Handled = true;
     }
 
     private void OnRightClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        bool wasDrag = _rightDragMoved;
-        EndRightDrag(save: true);
-        if (!wasDrag) OpenSettings();
+        if (_rightPending)
+        {
+            _rightPending = false;
+            if (RootBorder.IsMouseCaptured) RootBorder.ReleaseMouseCapture();
+        }
+        OpenSettings();
     }
 
-    /// <summary>Finishes a right-button drag; after a real move, keeps the window on-screen and saves its position.</summary>
-    private void EndRightDrag(bool save)
+    /// <summary>Finishes a left-button drag; after a real move, keeps the window on-screen and saves its position.</summary>
+    private void EndDrag(bool save)
     {
-        if (_rightDownCursor == null) return;
-        bool moved = _rightDragMoved;
-        _rightDownCursor = null;   // clear first: ReleaseMouseCapture re-enters via LostMouseCapture
-        _rightDragMoved = false;
+        if (_dragStartCursor == null) return;
+        bool moved = _dragMoved;
+        _dragStartCursor = null;   // clear first: ReleaseMouseCapture re-enters via LostMouseCapture
+        _dragMoved = false;
         _dragging = false;
         if (RootBorder.IsMouseCaptured) RootBorder.ReleaseMouseCapture();
 
@@ -481,7 +510,7 @@ public partial class MainWindow : Window
     }
 
     // ── Floating mode ─────────────────────────────────────────────────────────────
-    // Primary window only; click-through unless Ctrl is held, moved by Ctrl + right-drag, and stays above other
+    // Primary window only; click-through unless Ctrl is held, moved by Ctrl + left-drag, and stays above other
     // windows (Topmost + TopMostEnforcer).
 
     private bool IsFloating => _isPrimary && SettingsStore.Instance.FloatingMode;
@@ -496,8 +525,6 @@ public partial class MainWindow : Window
             ? new SolidColorBrush(Color.FromArgb(bgAlpha, 0x1C, 0x1C, 0x1C))
             : null;
         Opacity = IsFloating ? settings.FloatingWindowOpacity / 100.0 : 1.0;
-        // Floating: 1px outline, transparent until Ctrl is held (see UpdateCtrlMode).
-        RootBorder.BorderThickness = new Thickness(IsFloating ? 1 : 0);
 #if DEBUG
         _panel.Background = IsFloating ? null : new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x00, 0xFF));
 #endif
@@ -507,7 +534,7 @@ public partial class MainWindow : Window
     // ── Ctrl mode (floating only) ─────────────────────────────────────────────────
     // The floating window is fully click-through (WS_EX_TRANSPARENT): clicks, hover and wheel
     // go to whatever is underneath. Only while Ctrl is held does it accept the mouse
-    // (right-drag = move, right-click = Settings). A cheap 50 ms poll of the Ctrl key state
+    // (left-drag = move, right-click = Settings). A cheap 50 ms poll of the Ctrl key state
     // toggles this — no global mouse hook needed. A drag in progress stays interactive until
     // the button is released, even if Ctrl is let go first.
 
@@ -516,7 +543,6 @@ public partial class MainWindow : Window
 
     private const int VK_CONTROL = 0x11;
     private const int WS_EX_TRANSPARENT = 0x00000020;
-    private static readonly Brush CtrlOutlineBrush = new SolidColorBrush(Color.FromRgb(0x4C, 0x8D, 0xFF));
 
     private DispatcherTimer? _ctrlTimer;
     private bool? _clickThrough; // last applied state (null = never applied)
@@ -538,16 +564,14 @@ public partial class MainWindow : Window
         {
             _ctrlTimer?.Stop();
             SetClickThrough(false);
-            RootBorder.BorderBrush = null;
         }
     }
 
     private void ApplyCtrlState()
     {
         bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool interactive = ctrlDown || _rightDownCursor != null;
+        bool interactive = ctrlDown || _dragStartCursor != null || _rightPending;
         SetClickThrough(!interactive);
-        RootBorder.BorderBrush = interactive ? CtrlOutlineBrush : Brushes.Transparent;
     }
 
     private void SetClickThrough(bool on)
