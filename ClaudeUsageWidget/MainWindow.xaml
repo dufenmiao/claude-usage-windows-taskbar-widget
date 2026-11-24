@@ -10,6 +10,8 @@
         Background="Transparent"
         Height="48"
         Title="Claude Usage Widget">
-  <StackPanel x:Name="AccountsPanel" Orientation="Horizontal"
-              MouseRightButtonUp="OnRightClick"/>
+  <!-- RootBorder: obsahuje CombinedPanel (vkládá se v kódu). V plovoucím režimu dostane tmavé
+       zaoblené pozadí (čitelnost na libovolném podkladu + chytání myši pro drag). -->
+  <Border x:Name="RootBorder" CornerRadius="6"
+          MouseRightButtonUp="OnRightClick"/>
 </Window>

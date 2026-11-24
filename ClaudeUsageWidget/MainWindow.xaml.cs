@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -8,9 +7,13 @@ using System.Windows.Threading;
 
 namespace ClaudeUsageWidgetProvider;
 
+/// <summary>
+/// Okno widgetu: jedna dlaždice (CombinedPanel) s řádky Codex + Claude limitů.
+/// Buď dokované v taskbaru vlevo od tray, nebo plovoucí (volně přetažitelné, vždy navrchu).
+/// </summary>
 public partial class MainWindow : Window
 {
-    // Win32 P/Invoke
+    // ── Win32 P/Invoke ────────────────────────────────────────────────────────────
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
@@ -18,16 +21,11 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_NOACTIVATE = 0x08000000;
-    private const int WS_EX_TOOLWINDOW = 0x00000080;
-
     [DllImport("shell32.dll")]
     private static extern uint SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter,
-        string lpszClass, string? lpszWindow);
+    private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string? lpszWindow);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -42,15 +40,33 @@ public partial class MainWindow : Window
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("user32.dll")]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
     private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct APPBARDATA
@@ -72,59 +88,81 @@ public partial class MainWindow : Window
         public uint dwFlags;
     }
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WmMouseActivate = 0x0021;
+    private const int MaNoActivate = 3;
     private const uint ABM_GETTASKBARPOS = 0x5u;
     private const uint ABM_GETSTATE = 0x4u;
     private const int ABS_AUTOHIDE = 0x1;
     private const uint ABE_BOTTOM = 3u;
+    private const uint MONITOR_DEFAULTTONULL = 0;
     private const uint MONITOR_DEFAULTTONEAREST = 2;
     private const int MDT_EFFECTIVE_DPI = 0;
+    private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
 
-    // State
+    // ── Stav ──────────────────────────────────────────────────────────────────────
 
-    private int _lastTrayWidth;
+    // accountKey → poslední usage; sdílené mezi okny (primární fetchuje, sekundární jen zobrazují)
+    private static readonly Dictionary<string, UsageData> SharedUsage = [];
+    private static event Action? UsageUpdated;
+
+    private readonly List<(ClaudeApiClient Client, UsageData? LastUsage)> _accounts = [];
+    private readonly CombinedPanel _panel = new();
+    private readonly IntPtr _taskbarHwnd;
+    private readonly bool _isPrimary;
+    private readonly Dictionary<uint, bool> _isExplorerPidCache = new();
+
     private DispatcherTimer? _trayWatchTimer;
     private DispatcherTimer? _spinnerTimer;
     private DispatcherTimer? _refreshTimer;
     private DispatcherTimer? _textTimer;
     private DispatcherTimer? _visibilityTimer;
-    private bool _fullscreenMode;
-    // accountKey → latest usage, shared across all MainWindow instances
-    private static readonly Dictionary<string, UsageData> SharedUsage = [];
-    private static TogglUsageData? _sharedTogglUsage;
-    private static event Action? UsageUpdated;
-
-    private readonly List<(ClaudeApiClient Client, AccountPanel Panel, UsageData? LastUsage)> _accounts = [];
-    private (TogglApiClient Client, AccountPanel Panel, TogglUsageData? LastUsage)? _togglAccount;
-    private (JiraApiClient Client, AccountPanel Panel, JiraUsageData? LastUsage)? _jiraAccount;
-    private static JiraUsageData? _sharedJiraUsage;
-    private int _refreshTick;
-    private readonly UsageHistoryStore _historyStore = UsageHistoryStore.Instance;
-    private readonly IntPtr _taskbarHwnd;
-    private readonly bool _isPrimary;
-    private readonly Dictionary<uint, bool> _isExplorerPidCache = new();
-    private PopupWindow? _popup;
     private TopMostEnforcer? _topMostEnforcer;
-    private UpdateInfo? _latestRelease;
     private SettingsWindow? _settingsWindow;
+    private bool _fullscreenMode;
+    private bool _visibilityCheckRunning;
+    private int _lastTrayWidth;
+    private int _maxTrayWidthPx; // největší viděná šířka tray — viz PositionDocked
+    private bool _dragging;
+    private bool _appliedFloating;
 
-    [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+    internal MainWindow(IntPtr taskbarHwnd, bool isPrimary)
+    {
+        _taskbarHwnd = taskbarHwnd;
+        _isPrimary = isPrimary;
+        InitializeComponent();
 
-    private const uint SwpNoMove = 0x0002;
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoActivate = 0x0010;
-    private const int WmMouseActivate = 0x0021;
-    private const int MaNoActivate = 3;
+        RootBorder.Child = _panel;
+        RootBorder.MouseLeftButtonDown += OnFloatingDrag;
+        _panel.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ClickCount == 2) _ = RefreshAllAsync(force: true);
+        };
+
+        ApplyFloatingAppearance();
+        ApplyLayout();
+        RenderRows();
+
+        SettingsStore.VisibilityChanged += OnSettingsChanged;
+        if (!_isPrimary)
+            UsageUpdated += OnSharedUsageUpdated;
+
+        Loaded += (_, _) =>
+        {
+#if DEBUG
+            RemoveStartupIfThisExe();
+#endif
+            SetTaskbarHeight();
+            PositionWindow();
+            StartTrayWatchTimer();
+            StartTextTimer();
+            StartVisibilityTimer();
+        };
+    }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -143,13 +181,12 @@ public partial class MainWindow : Window
         {
             if (!_isPrimary)
                 UsageUpdated -= OnSharedUsageUpdated;
-            SettingsStore.VisibilityChanged -= OnVisibilityChanged;
-            SettingsStore.IncognitoChanged -= OnIncognitoChanged;
+            SettingsStore.VisibilityChanged -= OnSettingsChanged;
             _topMostEnforcer?.Dispose();
-            _popup?.Close();
             _refreshTimer?.Stop();
             _textTimer?.Stop();
             _visibilityTimer?.Stop();
+            _trayWatchTimer?.Stop();
         };
     }
 
@@ -163,231 +200,300 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    internal MainWindow(List<ClaudeApiClient> clients, TogglApiClient? togglClient, IntPtr taskbarHwnd, bool isPrimary)
-    {
-        _taskbarHwnd = taskbarHwnd;
-        _isPrimary = isPrimary;
-        InitializeComponent();
+    // ── Data ──────────────────────────────────────────────────────────────────────
 
-        // Claude/Codex panely jdou před Toggl/Jira — pokud konstruktor dostane prázdný seznam,
-        // doplní se později přes AddAccounts() (async load po Show()).
-        foreach (var client in clients)
-            AppendAccountPanel(client);
-
-        // Always instantiate Toggl client + panel so the tile can hot-reload when API key is entered
-        var togglInstance = togglClient ?? new TogglApiClient();
-        var togglPanelInstance = new AccountPanel(ServiceType.Toggl);
-        togglPanelInstance.MouseEnter += (_, _) => ShowPopupForToggl();
-        togglPanelInstance.MouseLeave += (_, _) => HidePopup();
-        togglPanelInstance.MouseLeftButtonDown += (_, args) =>
-        {
-            if (args.ClickCount == 2) _ = ForceRefreshToggl();
-        };
-        AccountsPanel.Children.Add(togglPanelInstance);
-        _togglAccount = (togglInstance, togglPanelInstance, null);
-
-        var jiraInstance = new JiraApiClient();
-        var jiraPanelInstance = new AccountPanel(ServiceType.Jira);
-        jiraPanelInstance.MouseEnter += (_, _) => ShowPopupForJira();
-        jiraPanelInstance.MouseLeave += (_, _) => HidePopup();
-        jiraPanelInstance.MouseLeftButtonDown += (_, args) =>
-        {
-            if (args.ClickCount == 2) _ = ForceRefreshJira();
-        };
-        AccountsPanel.Children.Add(jiraPanelInstance);
-        _jiraAccount = (jiraInstance, jiraPanelInstance, null);
-
-#if DEBUG
-        AccountsPanel.Background = new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x00, 0xFF));
-#endif
-
-        ApplyTileVisibility();
-        SettingsStore.VisibilityChanged += OnVisibilityChanged;
-        SettingsStore.IncognitoChanged += OnIncognitoChanged;
-        SettingsStore.TogglRefreshRequested += () => Dispatcher.Invoke(() => _ = ForceRefreshToggl());
-        SettingsStore.JiraRefreshRequested += () => Dispatcher.Invoke(() => _ = ForceRefreshJira());
-
-        if (!_isPrimary)
-            UsageUpdated += OnSharedUsageUpdated;
-
-        Loaded += async (_, _) =>
-        {
-#if DEBUG
-            RemoveStartupIfThisExe();
-#endif
-            SetTaskbarHeight();
-            PositionWindow();
-            StartTrayWatchTimer();
-
-            if (_isPrimary)
-            {
-                foreach (var (_, panel, _) in _accounts)
-                    if (panel.Visibility == Visibility.Visible)
-                        panel.ShowLoadingState();
-                if (_togglAccount?.Panel.Visibility == Visibility.Visible)
-                    _togglAccount?.Panel.ShowLoadingState();
-                if (_jiraAccount?.Panel.Visibility == Visibility.Visible)
-                    _jiraAccount?.Panel.ShowLoadingState();
-
-                StartSpinnerTimer();
-
-                var tasks = _accounts.Select((entry, i) => (Index: i, Task: entry.Client.GetUsageAsync())).ToList();
-                foreach (var (index, task) in tasks)
-                {
-                    var usage = await task;
-                    var (client, panel, _) = _accounts[index];
-                    if (usage != null)
-                    {
-                        _accounts[index] = (client, panel, usage);
-                        SettingsStore.Instance.RegisterKnownLabels(client.AccountService, usage);
-                        if (panel.Visibility == Visibility.Visible)
-                            panel.UpdateBars(usage);
-                        _historyStore.Append(client.AccountKey, usage);
-                        NotificationService.Instance.CheckAndNotify(client.AccountKey, usage);
-                        if (client.AccountKey != null)
-                            SharedUsage[client.AccountKey] = usage;
-                    }
-                    else if (panel.Visibility == Visibility.Visible)
-                    {
-                        panel.ShowErrorState(client.LastError);
-                    }
-                }
-
-                if (_togglAccount is { } toggl && toggl.Panel.Visibility == Visibility.Visible)
-                {
-                    var togglUsage = await toggl.Client.GetUsageAsync();
-                    if (togglUsage != null)
-                    {
-                        _togglAccount = (toggl.Client, toggl.Panel, togglUsage);
-                        toggl.Panel.UpdateTogglBars(togglUsage);
-                        TogglHistoryStore.Instance.Append(togglUsage);
-                        TogglHistoryStore.Instance.SaveSnapshot(togglUsage);
-                        _sharedTogglUsage = togglUsage;
-                    }
-                    else
-                    {
-                        toggl.Panel.ShowErrorState(toggl.Client.LastError);
-                    }
-                }
-
-                if (_jiraAccount is { } jira && jira.Panel.Visibility == Visibility.Visible)
-                {
-                    var jiraUsage = await jira.Client.GetUsageAsync();
-                    if (jiraUsage != null)
-                    {
-                        _jiraAccount = (jira.Client, jira.Panel, jiraUsage);
-                        jira.Panel.UpdateJiraBars(jiraUsage);
-                        JiraHistoryStore.Instance.Append(jiraUsage);
-                        _sharedJiraUsage = jiraUsage;
-                    }
-                    else
-                    {
-                        jira.Panel.ShowErrorState(jira.Client.LastError);
-                    }
-                }
-
-                StopSpinner();
-                UsageUpdated?.Invoke();
-                StartRefreshTimer();
-            }
-            else
-            {
-                // Secondary: apply any data already fetched by primary
-                OnSharedUsageUpdated();
-            }
-
-            StartTextTimer();
-            StartVisibilityTimer();
-            if (_isPrimary) _ = LoadLatestReleaseAsync();
-        };
-    }
-
-    private void StartSpinnerTimer()
-    {
-        if (_spinnerTimer != null) return;
-        _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
-        _spinnerTimer.Tick += (_, _) =>
-        {
-            foreach (var (_, panel, _) in _accounts)
-                panel.AdvanceSpinner();
-            _togglAccount?.Panel.AdvanceSpinner();
-            _jiraAccount?.Panel.AdvanceSpinner();
-        };
-        _spinnerTimer.Start();
-    }
-
-    /// <summary>Vloží jednu Claude/Codex dlaždici před Toggl/Jira a zapojí mouse eventy.</summary>
-    private void AppendAccountPanel(ClaudeApiClient client)
-    {
-        var index = _accounts.Count;
-        var panel = new AccountPanel(client.AccountService);
-        panel.MouseEnter += (_, _) => ShowPopupForAccount(index);
-        panel.MouseLeave += (_, _) => HidePopup();
-        panel.MouseLeftButtonDown += (_, args) =>
-        {
-            if (args.ClickCount == 2) _ = ForceRefreshAccount(index);
-        };
-        // Vlož před Toggl/Jira panely — ty byly přidány v konstruktoru.
-        AccountsPanel.Children.Insert(index, panel);
-        _accounts.Add((client, panel, null));
-    }
-
-    /// <summary>Asynchronně doplní Claude/Codex klienty po Show() — voláno z Program.cs.</summary>
+    /// <summary>Claude/Codex klienti se doplní po Show() — credential loading (wsl.exe) trvá pár sekund.</summary>
     internal async Task AddAccountsAsync(List<ClaudeApiClient> clients)
     {
         foreach (var client in clients)
-        {
-            AppendAccountPanel(client);
-            var (_, panel, _) = _accounts[^1];
-            if (panel.Visibility == Visibility.Visible)
-                panel.ShowLoadingState();
-        }
-
-        // Re-applikuj viditelnost podle nastavení (filtry per-service)
-        ApplyTileVisibility();
+            _accounts.Add((client, null));
+        RenderRows();
 
         if (!_isPrimary)
         {
-            // Sekundární okno bere data z primárního přes UsageUpdated event
             OnSharedUsageUpdated();
             return;
         }
 
         StartSpinnerTimer();
+        await RefreshAllAsync(force: false);
+        StopSpinner();
+        StartRefreshTimer();
+    }
 
-        // Postupně přivolat usage pro každý nový účet
+    private static bool IsAccountShown(ClaudeApiClient client) => client.AccountService switch
+    {
+        ServiceType.Claude => SettingsStore.Instance.ShowClaude,
+        ServiceType.Codex => SettingsStore.Instance.ShowCodex,
+        _ => true
+    };
+
+    private async Task RefreshAllAsync(bool force)
+    {
+        if (!_isPrimary) return;
         for (int i = 0; i < _accounts.Count; i++)
         {
-            var (client, panel, _) = _accounts[i];
-            if (panel.Visibility != Visibility.Visible) continue;
+            var client = _accounts[i].Client;
+            if (!IsAccountShown(client)) continue;
 
-            var usage = await client.GetUsageAsync();
+            var usage = await client.GetUsageAsync(forceRefresh: force);
             if (usage != null)
             {
-                _accounts[i] = (client, panel, usage);
+                _accounts[i] = (client, usage);
                 SettingsStore.Instance.RegisterKnownLabels(client.AccountService, usage);
-                panel.UpdateBars(usage);
-                _historyStore.Append(client.AccountKey, usage);
                 NotificationService.Instance.CheckAndNotify(client.AccountKey, usage);
                 if (client.AccountKey != null)
                     SharedUsage[client.AccountKey] = usage;
             }
-            else
+            RenderRows();
+        }
+        UsageUpdated?.Invoke();
+    }
+
+    private void OnSharedUsageUpdated()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            for (int i = 0; i < _accounts.Count; i++)
             {
-                panel.ShowErrorState(client.LastError);
+                var client = _accounts[i].Client;
+                if (client.AccountKey != null && SharedUsage.TryGetValue(client.AccountKey, out var usage))
+                    _accounts[i] = (client, usage);
+            }
+            RenderRows();
+        });
+    }
+
+    /// <summary>Řádky: nejdřív Codex, pak Claude; každý viditelný limit = jeden řádek. Účet bez dat = chyba nebo spinner.</summary>
+    private void RenderRows()
+    {
+        var rows = new List<CombinedPanel.Row>();
+        foreach (var service in new[] { ServiceType.Codex, ServiceType.Claude })
+        {
+            foreach (var (client, lastUsage) in _accounts)
+            {
+                if (client.AccountService != service || !IsAccountShown(client)) continue;
+                if (lastUsage != null)
+                {
+                    foreach (var limit in lastUsage.Limits)
+                        if (!SettingsStore.Instance.IsLimitHidden(limit.Label))
+                            rows.Add(new CombinedPanel.Row(service, limit, null));
+                }
+                else
+                {
+                    rows.Add(new CombinedPanel.Row(service, null, client.LastError));
+                }
             }
         }
+        _panel.SetRows(rows);
+    }
 
-        // Po fetchnutí všech účtů zastavit spinner (pokud už Toggl/Jira skončily)
-        StopSpinner();
-        UsageUpdated?.Invoke();
-        StartRefreshTimer();
+    // ── Timery ────────────────────────────────────────────────────────────────────
+
+    private void StartSpinnerTimer()
+    {
+        if (_spinnerTimer != null) return;
+        _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _spinnerTimer.Tick += (_, _) => _panel.AdvanceSpinner();
+        _spinnerTimer.Start();
     }
 
     private void StopSpinner()
     {
         _spinnerTimer?.Stop();
         _spinnerTimer = null;
+    }
+
+    private void StartRefreshTimer()
+    {
+        if (_refreshTimer != null) return;
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _refreshTimer.Tick += async (_, _) => await RefreshAllAsync(force: false);
+        _refreshTimer.Start();
+    }
+
+    /// <summary>Odpočet do resetu se mění i bez nového fetche.</summary>
+    private void StartTextTimer()
+    {
+        _textTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        _textTimer.Tick += (_, _) => RenderRows();
+        _textTimer.Start();
+    }
+
+    private void StartTrayWatchTimer()
+    {
+        _trayWatchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _trayWatchTimer.Tick += async (_, _) =>
+        {
+            var trayWidth = await Task.Run(GetTrayWidth);
+            if (trayWidth != _lastTrayWidth)
+                PositionWindow();
+        };
+        _trayWatchTimer.Start();
+    }
+
+    // ── Nastavení ─────────────────────────────────────────────────────────────────
+
+    private void OnSettingsChanged()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            bool floatingToggled = IsFloating != _appliedFloating;
+            ApplyFloatingAppearance(); // i kvůli změně průhlednosti
+            if (floatingToggled && !IsFloating) SetTaskbarHeight();
+            ApplyLayout();
+            RenderRows();
+
+            // Nově zapnutá služba ještě nemá data → hned fetchnout.
+            if (_isPrimary && _accounts.Any(a => a.LastUsage == null && IsAccountShown(a.Client)))
+                _ = RefreshAllAsync(force: false);
+        });
+    }
+
+    private void ApplyLayout()
+    {
+        double width = SettingsStore.Instance.TileWidth;
+        _panel.SetTileWidth(width);
+        Width = width;
+        if (IsLoaded) PositionWindow();
+    }
+
+    private void OnRightClick(object sender, MouseButtonEventArgs e) => OpenSettings();
+
+    private void OpenSettings()
+    {
+        if (_settingsWindow != null)
+        {
+            if (_settingsWindow.WindowState == WindowState.Minimized)
+                _settingsWindow.WindowState = WindowState.Normal;
+            PlaceSettingsWindow(_settingsWindow);
+            _settingsWindow.Topmost = true;
+            _settingsWindow.Activate();
+            _settingsWindow.Topmost = false;
+            return;
+        }
+        _settingsWindow = new SettingsWindow
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10000, // mimo obrazovku, dokud neznáme velikost (SizeToContent)
+            Top = -10000
+        };
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
+        _settingsWindow.UpdateLayout();
+        PlaceSettingsWindow(_settingsWindow);
+        _settingsWindow.Activate();
+    }
+
+    /// <summary>
+    /// Settings přilepené těsně nad widget, pravé hrany zarovnané. Když se nad widget nevejde
+    /// (widget u horního okraje), dá se pod něj; vodorovně se drží uvnitř virtuální obrazovky.
+    /// </summary>
+    private void PlaceSettingsWindow(Window w)
+    {
+        const double gap = 6;
+        double m = SettingsWindow.ShadowMargin; // viditelná karta je o m menší než okno
+        double left = Left + ActualWidth - w.ActualWidth + m;
+        double top = Top - w.ActualHeight - gap + m;
+        if (top + m < SystemParameters.VirtualScreenTop)
+            top = Top + ActualHeight + gap - m;
+
+        double minLeft = SystemParameters.VirtualScreenLeft;
+        double maxLeft = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - w.ActualWidth;
+        w.Left = Math.Clamp(left, minLeft, Math.Max(minLeft, maxLeft));
+        w.Top = top;
+    }
+
+    // ── Plovoucí režim ────────────────────────────────────────────────────────────
+    // Jen primární okno; widget je volně přetažitelný a drží se nad ostatními okny (Topmost + TopMostEnforcer).
+
+    private bool IsFloating => _isPrimary && SettingsStore.Instance.FloatingMode;
+
+    private void ApplyFloatingAppearance()
+    {
+        _appliedFloating = IsFloating;
+        var settings = SettingsStore.Instance;
+        // Alfa min. 1: plně průhledné pixely okna s AllowsTransparency propadají myší → nešlo by táhnout.
+        byte bgAlpha = (byte)Math.Max(1, settings.FloatingBackgroundOpacity * 255 / 100);
+        RootBorder.Background = IsFloating
+            ? new SolidColorBrush(Color.FromArgb(bgAlpha, 0x1C, 0x1C, 0x1C))
+            : null;
+        Opacity = IsFloating ? settings.FloatingWindowOpacity / 100.0 : 1.0;
+#if DEBUG
+        _panel.Background = IsFloating ? null : new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x00, 0xFF));
+#endif
+    }
+
+    private void OnFloatingDrag(object sender, MouseButtonEventArgs e)
+    {
+        if (!IsFloating || e.ClickCount != 1) return;
+        _dragging = true;
+        try { DragMove(); }
+        catch (InvalidOperationException) { /* tlačítko už puštěné */ }
+        finally { _dragging = false; }
+
+        if (GetWindowRect(new WindowInteropHelper(this).Handle, out RECT r))
+        {
+            var settings = SettingsStore.Instance;
+            settings.FloatingX = r.Left;
+            settings.FloatingY = r.Top;
+            settings.Save();
+        }
+    }
+
+    private void PositionFloating()
+    {
+        var settings = SettingsStore.Instance;
+        int x = settings.FloatingX, y = settings.FloatingY;
+
+        // Bez uložené pozice nebo když monitor s uloženou pozicí zmizel → těsně nad dokovanou pozicí v taskbaru.
+        bool valid = x != int.MinValue && y != int.MinValue &&
+                     MonitorFromPoint(new POINT { X = x + 10, Y = y + 10 }, MONITOR_DEFAULTTONULL) != IntPtr.Zero;
+        if (!valid)
+        {
+            var (_, taskbarRect) = GetTaskbarInfo();
+            double s = GetMonitorScale();
+            x = taskbarRect.Right - Math.Max(GetTrayWidth(), _maxTrayWidthPx) - (int)(Width * s);
+            y = taskbarRect.Top - (int)(Height * s) - (int)(12 * s);
+        }
+
+        MoveTo(x, y);
+    }
+
+    // ── Pozice v taskbaru ─────────────────────────────────────────────────────────
+
+    private void PositionWindow()
+    {
+        if (_dragging) return;
+        if (IsFloating) PositionFloating();
+        else PositionDocked();
+    }
+
+    private void PositionDocked()
+    {
+        var (isBottom, taskbarRect) = GetTaskbarInfo();
+        if (!isBottom) return; // skip non-bottom taskbars
+
+        double scale = GetMonitorScale();
+        int rawTrayWidthPx = GetTrayWidth();
+        _lastTrayWidth = rawTrayWidthPx;
+        // Tray se mění např. při přepnutí IME indikátoru (中/英/ENG). Widget se posouvá jen doleva
+        // (když tray naroste), nikdy doprava — jinak při každé změně poskakuje.
+        int trayWidthPx = Math.Max(rawTrayWidthPx, _maxTrayWidthPx);
+        _maxTrayWidthPx = trayWidthPx;
+
+        int widgetWidthPx = (int)(Width * scale);
+        MoveTo(taskbarRect.Right - trayWidthPx - widgetWidthPx, taskbarRect.Top);
+    }
+
+    private void MoveTo(int xPx, int yPx)
+    {
+        var myHwnd = new WindowInteropHelper(this).Handle;
+        SetWindowPos(myHwnd, IntPtr.Zero, xPx, yPx, 0, 0, SwpNoSize | SwpNoActivate | SwpNoZOrder);
+        // WPF souřadnice (pro umístění Settings)
+        var dpi = VisualTreeHelper.GetDpi(this);
+        Left = xPx / dpi.DpiScaleX;
+        Top = yPx / dpi.DpiScaleY;
     }
 
     private double GetMonitorScale()
@@ -431,11 +537,7 @@ public partial class MainWindow : Window
                 return trayRect.Right - trayRect.Left;
             return 200;
         }
-        return GetSecondaryTrayWidth();
-    }
 
-    private int GetSecondaryTrayWidth()
-    {
         if (!GetWindowRect(_taskbarHwnd, out RECT taskbarRect)) return 150;
         int minLeft = taskbarRect.Right;
         EnumChildWindows(_taskbarHwnd, (child, _) =>
@@ -452,221 +554,7 @@ public partial class MainWindow : Window
         return trayWidth is > 20 and < 600 ? trayWidth : 120;
     }
 
-    private void PositionWindow()
-    {
-        var (isBottom, taskbarRect) = GetTaskbarInfo();
-        if (!isBottom) return; // skip non-bottom taskbars
-
-        double scale = GetMonitorScale();
-        int trayWidthPx = GetTrayWidth();
-        _lastTrayWidth = trayWidthPx;
-
-        int widgetWidthPx = (int)(Width * scale);
-        int posXPx = taskbarRect.Right - trayWidthPx - widgetWidthPx;
-        int posYPx = taskbarRect.Top;
-
-        var myHwnd = new WindowInteropHelper(this).Handle;
-        SetWindowPos(myHwnd, IntPtr.Zero, posXPx, posYPx, 0, 0, SwpNoSize | SwpNoActivate | SwpNoZOrder);
-
-        // Update WPF coords for popup positioning
-        Left = posXPx / scale;
-        Top = posYPx / scale;
-    }
-
-    private void StartRefreshTimer()
-    {
-        if (_refreshTimer != null) return; // idempotent — accounts can be added po Loaded
-        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
-        _refreshTimer.Tick += async (_, _) =>
-        {
-            for (int i = 0; i < _accounts.Count; i++)
-            {
-                var (client, panel, _) = _accounts[i];
-                var usage = await client.GetUsageAsync();
-                if (usage != null)
-                {
-                    _accounts[i] = (client, panel, usage);
-                    SettingsStore.Instance.RegisterKnownLabels(client.AccountService, usage);
-                    panel.UpdateBars(usage);
-                    _historyStore.Append(client.AccountKey, usage);
-                    NotificationService.Instance.CheckAndNotify(client.AccountKey, usage);
-                    if (client.AccountKey != null)
-                        SharedUsage[client.AccountKey] = usage;
-                }
-                else
-                {
-                    panel.ShowErrorState(client.LastError);
-                }
-            }
-
-            _refreshTick++;
-            if (_refreshTick % 5 == 0 && _togglAccount is { } toggl &&
-                toggl.Panel.Visibility == Visibility.Visible)
-            {
-                var togglUsage = await toggl.Client.GetUsageAsync();
-                if (togglUsage != null)
-                {
-                    _togglAccount = (toggl.Client, toggl.Panel, togglUsage);
-                    toggl.Panel.UpdateTogglBars(togglUsage);
-                    TogglHistoryStore.Instance.Append(togglUsage);
-                    _sharedTogglUsage = togglUsage;
-                }
-                else
-                {
-                    toggl.Panel.ShowErrorState(toggl.Client.LastError);
-                }
-            }
-
-            if (_refreshTick % 5 == 0 && _jiraAccount is { } jira &&
-                jira.Panel.Visibility == Visibility.Visible)
-            {
-                var jiraUsage = await jira.Client.GetUsageAsync();
-                if (jiraUsage != null)
-                {
-                    _jiraAccount = (jira.Client, jira.Panel, jiraUsage);
-                    jira.Panel.UpdateJiraBars(jiraUsage);
-                    _sharedJiraUsage = jiraUsage;
-                }
-                else
-                {
-                    jira.Panel.ShowErrorState(jira.Client.LastError);
-                }
-            }
-
-            UsageUpdated?.Invoke();
-        };
-        _refreshTimer.Start();
-    }
-
-    private const double DefaultColWidth = 170.0;
-
-    private void ApplyTileVisibility()
-    {
-        var settings = SettingsStore.Instance;
-        double totalWidth = 0;
-
-        foreach (var (client, panel, _) in _accounts)
-        {
-            bool show = client.AccountService switch
-            {
-                ServiceType.Claude => settings.ShowClaude,
-                ServiceType.Codex => settings.ShowCodex,
-                _ => true
-            };
-            panel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            double w = client.AccountService switch
-            {
-                ServiceType.Claude => settings.ClaudeWidth,
-                ServiceType.Codex => settings.CodexWidth,
-                _ => DefaultColWidth
-            };
-            panel.SetTileWidth(w);
-            if (show) totalWidth += w;
-        }
-
-        if (_togglAccount is { } toggl)
-        {
-            bool togglVisible = settings.ShowToggl && !string.IsNullOrWhiteSpace(settings.TogglApiKey);
-            toggl.Panel.Visibility = togglVisible ? Visibility.Visible : Visibility.Collapsed;
-            toggl.Panel.SetTileWidth(settings.TogglWidth);
-            if (togglVisible) totalWidth += settings.TogglWidth;
-        }
-
-        if (_jiraAccount is { } jira)
-        {
-            bool jiraConfigured = !string.IsNullOrWhiteSpace(settings.JiraUrl) &&
-                                  !string.IsNullOrWhiteSpace(settings.JiraApiToken) &&
-                                  !string.IsNullOrWhiteSpace(settings.JiraEmail) &&
-                                  !string.IsNullOrWhiteSpace(settings.JiraProjectKey);
-            bool jiraVisible = settings.ShowJira && jiraConfigured;
-            jira.Panel.Visibility = jiraVisible ? Visibility.Visible : Visibility.Collapsed;
-            jira.Panel.SetTileWidth(settings.JiraWidth);
-            if (jiraVisible) totalWidth += settings.JiraWidth;
-        }
-
-        // If nothing visible, keep minimum 1 default column so the window isn't zero-width
-        Width = totalWidth > 0 ? totalWidth : DefaultColWidth;
-        if (IsLoaded) PositionWindow();
-    }
-
-    private void OnVisibilityChanged()
-    {
-        Dispatcher.Invoke(() =>
-        {
-            bool togglWasVisible = _togglAccount?.Panel.Visibility == Visibility.Visible;
-            bool jiraWasVisible = _jiraAccount?.Panel.Visibility == Visibility.Visible;
-            ApplyTileVisibility();
-            bool togglNowVisible = _togglAccount?.Panel.Visibility == Visibility.Visible;
-            bool jiraNowVisible = _jiraAccount?.Panel.Visibility == Visibility.Visible;
-
-            if (_isPrimary && !togglWasVisible && togglNowVisible && _togglAccount is { } toggl)
-            {
-                toggl.Panel.ShowLoadingState();
-                _ = ForceRefreshToggl();
-            }
-            if (_isPrimary && !jiraWasVisible && jiraNowVisible && _jiraAccount is { } jira)
-            {
-                jira.Panel.ShowLoadingState();
-                _ = ForceRefreshJira();
-            }
-
-            // HiddenLimits se mohly změnit — překreslit Claude/Codex bary z cached usage.
-            foreach (var (_, panel, lastUsage) in _accounts)
-                if (lastUsage != null && panel.Visibility == Visibility.Visible)
-                    panel.UpdateBars(lastUsage);
-        });
-    }
-
-    private void OnIncognitoChanged()
-    {
-        Dispatcher.Invoke(() =>
-        {
-            if (_togglAccount is { } toggl && toggl.LastUsage != null)
-                toggl.Panel.UpdateTogglBars(toggl.LastUsage);
-            if (_jiraAccount is { } jira && jira.LastUsage != null)
-                jira.Panel.UpdateJiraBars(jira.LastUsage);
-            _popup?.Hide();
-        });
-    }
-
-    private void OnSharedUsageUpdated()
-    {
-        Dispatcher.Invoke(() =>
-        {
-            for (int i = 0; i < _accounts.Count; i++)
-            {
-                var (client, panel, _) = _accounts[i];
-                if (client.AccountKey != null && SharedUsage.TryGetValue(client.AccountKey, out var usage))
-                {
-                    _accounts[i] = (client, panel, usage);
-                    SettingsStore.Instance.RegisterKnownLabels(client.AccountService, usage);
-                    panel.UpdateBars(usage);
-                }
-            }
-
-            if (_togglAccount is { } toggl && _sharedTogglUsage != null)
-            {
-                _togglAccount = (toggl.Client, toggl.Panel, _sharedTogglUsage);
-                toggl.Panel.UpdateTogglBars(_sharedTogglUsage);
-            }
-            if (_jiraAccount is { } jira && _sharedJiraUsage != null)
-            {
-                _jiraAccount = (jira.Client, jira.Panel, _sharedJiraUsage);
-                jira.Panel.UpdateJiraBars(_sharedJiraUsage);
-            }
-        });
-    }
-
-    private void StartTextTimer()
-    {
-        _textTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-        _textTimer.Tick += (_, _) =>
-        {
-            foreach (var (_, panel, lastUsage) in _accounts)
-                panel.RefreshText(lastUsage);
-        };
-        _textTimer.Start();
-    }
+    // ── Viditelnost (auto-hide taskbar, fullscreen aplikace) ──────────────────────
 
     private void StartVisibilityTimer()
     {
@@ -674,8 +562,6 @@ public partial class MainWindow : Window
         _visibilityTimer.Tick += (_, _) => CheckVisibility();
         _visibilityTimer.Start();
     }
-
-    private bool _visibilityCheckRunning;
 
     private async void CheckVisibility()
     {
@@ -686,7 +572,8 @@ public partial class MainWindow : Window
             var (taskbarVisible, fullscreen) = await Task.Run(() =>
                 (IsTaskbarVisible(), IsFullscreenOnMyMonitor()));
 
-            bool shouldShow = taskbarVisible && !fullscreen;
+            // Plovoucí okno nezávisí na (auto-hide) taskbaru; při fullscreen aplikaci se schová stejně jako dokované.
+            bool shouldShow = (taskbarVisible || IsFloating) && !fullscreen;
 
             if (fullscreen && !_fullscreenMode)
                 EnterFullscreenMode();
@@ -730,7 +617,6 @@ public partial class MainWindow : Window
             var stateData = new APPBARDATA { cbSize = (uint)Marshal.SizeOf<APPBARDATA>() };
             uint state = SHAppBarMessage(ABM_GETSTATE, ref stateData);
             bool autoHideEnabled = (state & ABS_AUTOHIDE) != 0;
-
             if (!autoHideEnabled) return true;
 
             if (!GetWindowRect(_taskbarHwnd, out RECT actualRect)) return true;
@@ -738,14 +624,12 @@ public partial class MainWindow : Window
             SHAppBarMessage(ABM_GETTASKBARPOS, ref posData);
             return actualRect.Top <= posData.rc.Bottom;
         }
-        else
-        {
-            if (!GetWindowRect(_taskbarHwnd, out RECT taskbarRect)) return true;
-            var monitor = MonitorFromWindow(_taskbarHwnd, MONITOR_DEFAULTTONEAREST);
-            var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
-            if (!GetMonitorInfo(monitor, ref mi)) return true;
-            return taskbarRect.Top < mi.rcMonitor.Bottom - 2;
-        }
+
+        if (!GetWindowRect(_taskbarHwnd, out RECT taskbarRect)) return true;
+        var monitor = MonitorFromWindow(_taskbarHwnd, MONITOR_DEFAULTTONEAREST);
+        var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref mi)) return true;
+        return taskbarRect.Top < mi.rcMonitor.Bottom - 2;
     }
 
     private bool IsFullscreenOnMyMonitor()
@@ -784,138 +668,10 @@ public partial class MainWindow : Window
             && fgRect.Right >= mon.Right && fgRect.Bottom >= mon.Bottom;
     }
 
-    private void StartTrayWatchTimer()
-    {
-        _trayWatchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _trayWatchTimer.Tick += async (_, _) =>
-        {
-            var trayWidth = await Task.Run(() => GetTrayWidth());
-            if (trayWidth != _lastTrayWidth)
-                PositionWindow();
-        };
-        _trayWatchTimer.Start();
-    }
-
-    private double GetPanelLeftOffset(AccountPanel panel)
-    {
-        try
-        {
-            var transform = panel.TransformToAncestor(AccountsPanel);
-            return transform.Transform(new Point(0, 0)).X;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
-    private void ShowPopupForAccount(int index)
-    {
-        if (index >= _accounts.Count) return;
-        var (client, panel, lastUsage) = _accounts[index];
-        if (panel.Visibility != Visibility.Visible) return;
-        if (lastUsage == null && client.LastError == null) return;
-        if (_popup == null)
-        {
-            _popup = new PopupWindow();
-            _popup.Owner = this;
-            _popup.MouseLeave += (_, _) => HidePopup();
-        }
-        _popup.UpdateAndShow(lastUsage, client.LastError, client.CredentialPath,
-            Left + GetPanelLeftOffset(panel), Top, client.AccountKey);
-    }
-
-    private void ShowPopupForToggl()
-    {
-        if (_togglAccount is not { } toggl) return;
-        if (toggl.Panel.Visibility != Visibility.Visible) return;
-        if (toggl.LastUsage == null && toggl.Client.LastError == null) return;
-        if (_popup == null)
-        {
-            _popup = new PopupWindow();
-            _popup.Owner = this;
-            _popup.MouseLeave += (_, _) => HidePopup();
-        }
-        _popup.UpdateAndShowToggl(toggl.LastUsage, toggl.Client.LastError,
-            Left + GetPanelLeftOffset(toggl.Panel), Top);
-    }
-
-    private void ShowPopupForJira()
-    {
-        if (_jiraAccount is not { } jira) return;
-        if (jira.Panel.Visibility != Visibility.Visible) return;
-        if (jira.LastUsage == null && jira.Client.LastError == null) return;
-        if (_popup == null)
-        {
-            _popup = new PopupWindow();
-            _popup.Owner = this;
-            _popup.MouseLeave += (_, _) => HidePopup();
-        }
-        _popup.UpdateAndShowJira(jira.LastUsage, jira.Client.LastError,
-            Left + GetPanelLeftOffset(jira.Panel), Top);
-    }
-
-    private async Task ForceRefreshJira()
-    {
-        if (!_isPrimary || _jiraAccount is not { } jira) return;
-        jira.Panel.ShowLoadingState();
-        StartSpinnerTimer();
-        var usage = await jira.Client.GetUsageAsync(forceRefresh: true);
-        StopSpinner();
-        if (usage != null)
-        {
-            _jiraAccount = (jira.Client, jira.Panel, usage);
-            jira.Panel.UpdateJiraBars(usage);
-            JiraHistoryStore.Instance.Append(usage);
-            _sharedJiraUsage = usage;
-        }
-        else
-        {
-            jira.Panel.ShowErrorState(jira.Client.LastError);
-        }
-    }
-
-    private async Task ForceRefreshToggl()
-    {
-        if (!_isPrimary || _togglAccount is not { } toggl) return;
-        toggl.Panel.ShowLoadingState();
-        StartSpinnerTimer();
-        var usage = await toggl.Client.GetUsageAsync(forceRefresh: true);
-        StopSpinner();
-        if (usage != null)
-        {
-            _togglAccount = (toggl.Client, toggl.Panel, usage);
-            toggl.Panel.UpdateTogglBars(usage);
-            TogglHistoryStore.Instance.Append(usage);
-            TogglHistoryStore.Instance.SaveSnapshot(usage);
-        }
-        else
-        {
-            toggl.Panel.ShowErrorState(toggl.Client.LastError);
-        }
-    }
-
-    private void HidePopup()
-    {
-        _popup?.Hide();
-    }
-
-    private async Task LoadLatestReleaseAsync()
-    {
-        _latestRelease = await Updater.CheckAsync();
-    }
-
-    private async Task UpdateAsync()
-    {
-        var info = await Updater.FreshCheckAsync();
-        if (info == null) return;
-        Updater.LaunchUpdaterTerminal(info);
-    }
-
+#if DEBUG
     private const string RunRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunRegistryValue = "ClaudeUsageWidget";
 
-#if DEBUG
     private static void RemoveStartupIfThisExe()
     {
         using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryKey, writable: true);
@@ -926,112 +682,4 @@ public partial class MainWindow : Window
             key.DeleteValue(RunRegistryValue, throwOnMissingValue: false);
     }
 #endif
-
-    private async Task ForceRefreshAccount(int index)
-    {
-        if (!_isPrimary || index >= _accounts.Count) return;
-        var (client, panel, _) = _accounts[index];
-
-        panel.ShowLoadingState();
-        StartSpinnerTimer();
-
-        var usage = await client.GetUsageAsync(forceRefresh: true);
-        StopSpinner();
-
-        if (usage != null)
-        {
-            _accounts[index] = (client, panel, usage);
-            SettingsStore.Instance.RegisterKnownLabels(client.AccountService, usage);
-            panel.UpdateBars(usage);
-            _historyStore.Append(client.AccountKey, usage);
-            NotificationService.Instance.CheckAndNotify(client.AccountKey, usage);
-            if (client.AccountKey != null)
-                SharedUsage[client.AccountKey] = usage;
-        }
-        else
-        {
-            panel.ShowErrorState(client.LastError);
-        }
-        UsageUpdated?.Invoke();
-    }
-
-    private void OnRightClick(object sender, MouseButtonEventArgs e)
-    {
-        HidePopup();
-
-        var settings = SettingsStore.Instance;
-        var menu = new ContextMenuWindow { Owner = this };
-
-        menu.AddCheckItem("Incognito mode", settings.IncognitoMode, true, on =>
-        {
-            settings.IncognitoMode = on;
-            settings.Save();
-            SettingsStore.RaiseIncognitoChanged();
-        });
-#if !DEBUG
-        menu.AddCheckItem("Desktop shortcut", DesktopShortcutExists(), true, on =>
-        {
-            if (on) CreateDesktopShortcut();
-            else RemoveDesktopShortcut();
-        });
-#endif
-        menu.AddSeparator();
-        if (_latestRelease != null)
-        {
-            var isLatest = _latestRelease.Version == Updater.CurrentVersion;
-            var label = isLatest
-                ? $"v{_latestRelease.Version} (latest)"
-                : $"Update to v{_latestRelease.Version}";
-            menu.AddItem(label, () => _ = UpdateAsync());
-            menu.AddSeparator();
-        }
-        menu.AddItem("Open Settings", OpenSettings);
-        menu.AddSeparator();
-        menu.AddItem("Quit", () => Application.Current.Shutdown());
-
-        var clickPoint = e.GetPosition(this);
-        menu.ShowAbove(Left + clickPoint.X, Top);
-    }
-
-    internal static string DesktopShortcutPath() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Claude Usage Widget.lnk");
-
-    internal static bool DesktopShortcutExists() => File.Exists(DesktopShortcutPath());
-
-    internal static void CreateDesktopShortcut()
-    {
-        var exePath = Environment.ProcessPath;
-        if (exePath == null) return;
-        var script = $"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{DesktopShortcutPath().Replace("'", "''")}'); $sc.TargetPath = '{exePath.Replace("'", "''")}'; $sc.Save()";
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "powershell",
-            Arguments = $"-NoProfile -WindowStyle Hidden -Command \"{script}\"",
-            CreateNoWindow = true,
-            UseShellExecute = false
-        });
-    }
-
-    internal static void RemoveDesktopShortcut()
-    {
-        var path = DesktopShortcutPath();
-        if (File.Exists(path)) File.Delete(path);
-    }
-
-    private void OpenSettings()
-    {
-        if (_settingsWindow != null)
-        {
-            if (_settingsWindow.WindowState == WindowState.Minimized)
-                _settingsWindow.WindowState = WindowState.Normal;
-            _settingsWindow.Topmost = true;
-            _settingsWindow.Activate();
-            _settingsWindow.Topmost = false;
-            return;
-        }
-        _settingsWindow = new SettingsWindow();
-        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
-        _settingsWindow.Show();
-        _settingsWindow.Activate();
-    }
 }

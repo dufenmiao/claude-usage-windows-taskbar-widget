@@ -89,37 +89,30 @@ internal class App : Application
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        // Toggl client — jen pokud je v Settings zadaný API key (žádné WSL/HTTP volání)
-        TogglApiClient? togglClient = null;
-        if (!string.IsNullOrWhiteSpace(SettingsStore.Instance.TogglApiKey))
-            togglClient = new TogglApiClient();
-
-        // Migrate history from %AppData% to %ProgramData% (persists across reinstalls)
-        UsageHistoryStore.Instance.MigrateFromAppData();
-
         var clients = new List<ClaudeApiClient>();
         Exit += (_, _) =>
         {
             foreach (var c in clients) c.Dispose();
-            togglClient?.Dispose();
         };
 
         var primaryHwnd = FindWindow("Shell_TrayWnd", null);
 
         // Okno UKÁZAT IHNED — bez Claude účtů. Credential loading volá wsl.exe (1-5s cold start),
         // synchronní načtení by zdrželo zobrazení widgetu o několik sekund.
-        var primaryWindow = new MainWindow([], togglClient, primaryHwnd, isPrimary: true);
+        var primaryWindow = new MainWindow(primaryHwnd, isPrimary: true);
         MainWindow = primaryWindow;
         primaryWindow.Show();
 
         var secondaryWindows = new List<MainWindow>();
+        // PrimaryMonitorOnly: widget jen na hlavním taskbaru, sekundární monitory přeskočit.
+        if (!SettingsStore.Instance.PrimaryMonitorOnly)
         EnumWindows((hwnd, _) =>
         {
             var sb = new StringBuilder(64);
             GetClassName(hwnd, sb, 64);
             if (sb.ToString() == "Shell_SecondaryTrayWnd")
             {
-                var sw = new MainWindow([], togglClient, hwnd, isPrimary: false);
+                var sw = new MainWindow(hwnd, isPrimary: false);
                 sw.Show();
                 secondaryWindows.Add(sw);
             }
@@ -146,12 +139,6 @@ internal class App : Application
             await Dispatcher.InvokeAsync(() =>
             {
                 clients.AddRange(accounts.Select(a => new ClaudeApiClient(a)));
-
-                // Migrate orphaned history (po načtení účtů)
-                var activeKeys = clients.Select(c => c.AccountKey).OfType<string>().ToList();
-                foreach (var client in clients)
-                    if (client.AccountKey != null)
-                        UsageHistoryStore.Instance.MigrateOrphanedHistory(client.AccountKey, activeKeys);
 
                 _ = primaryWindow.AddAccountsAsync(clients);
                 foreach (var sw in secondaryWindows)

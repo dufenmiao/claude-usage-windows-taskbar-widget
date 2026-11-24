@@ -9,270 +9,310 @@
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="CenterScreen"
         Title="Claude Usage Widget Settings">
-    <Border Background="#1C1C1C" CornerRadius="8" Padding="16,12"
-            MouseLeftButtonDown="Border_MouseLeftButtonDown">
-        <StackPanel>
-            <TextBlock Text="Settings" Foreground="White" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+    <Window.Resources>
+        <!-- Paleta (Windows 11 dark) -->
+        <SolidColorBrush x:Key="WindowBg" Color="#2B2B2B"/>
+        <SolidColorBrush x:Key="WindowBorder" Color="#404040"/>
+        <SolidColorBrush x:Key="CardBg" Color="#333333"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#3C3C3C"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F0F0F0"/>
+        <SolidColorBrush x:Key="SubTextBrush" Color="#9E9E9E"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#4C8DFF"/>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="240"/>
-                    <ColumnDefinition Width="16"/>
-                    <ColumnDefinition Width="240"/>
-                    <ColumnDefinition Width="16"/>
-                    <ColumnDefinition Width="240"/>
-                </Grid.ColumnDefinitions>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
 
-                <!-- COLUMN 1: General -->
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="General" Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SubTextBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,0,0,5"/>
+        </Style>
 
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Show sections" Foreground="#888888" FontSize="10" Grid.Column="0"/>
-                        <TextBlock Text="Width" Foreground="#888888" FontSize="10" Grid.Column="1"
-                                   HorizontalAlignment="Center"/>
-                    </Grid>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SubTextBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
 
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="ShowClaudeCheck" Content="Claude"
-                                  Foreground="White" FontSize="11" Grid.Column="0"/>
-                        <TextBox x:Name="ClaudeWidthBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="ShowCodexCheck" Content="Codex"
-                                  Foreground="White" FontSize="11" Grid.Column="0"/>
-                        <TextBox x:Name="CodexWidthBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="ShowTogglCheck" Content="Toggl Track"
-                                  Foreground="White" FontSize="11" Grid.Column="0"/>
-                        <TextBox x:Name="TogglWidthBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="ShowJiraCheck" Content="JIRA"
-                                  Foreground="White" FontSize="11" Grid.Column="0"/>
-                        <TextBox x:Name="JiraWidthBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right"/>
-                    </Grid>
+        <!-- Checkbox jako přepínač: text vlevo, switch vpravo -->
+        <Style x:Key="ToggleRow" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Border x:Name="Track" Grid.Column="1" Width="34" Height="18" CornerRadius="9"
+                                    Background="#3A3A3A" BorderBrush="#6A6A6A" BorderThickness="1"
+                                    VerticalAlignment="Center">
+                                <Ellipse x:Name="Knob" Width="10" Height="10" Fill="#CFCFCF"
+                                         HorizontalAlignment="Left" Margin="3,0"/>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Knob" Property="Fill" Value="White"/>
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="Knob" Property="Width" Value="12"/>
+                                <Setter TargetName="Knob" Property="Height" Value="12"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Track" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                    <Border Height="1" Background="#333333" Margin="0,4,0,8"/>
+        <!-- Slider: tenká dráha, vyplněná část v accent barvě, kulatý thumb -->
+        <Style x:Key="SliderRepeat" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="{TemplateBinding Background}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SliderThumb" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Ellipse Width="14" Height="14" Fill="White"
+                                 Stroke="{StaticResource AccentBrush}" StrokeThickness="3"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Slider">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Height="20" Background="Transparent">
+                            <Track x:Name="PART_Track"
+                                   Minimum="{TemplateBinding Minimum}"
+                                   Maximum="{TemplateBinding Maximum}"
+                                   Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Style="{StaticResource SliderRepeat}"
+                                                  Background="{StaticResource AccentBrush}"
+                                                  Command="Slider.DecreaseLarge"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Style="{StaticResource SliderRepeat}"
+                                                  Background="#505050"
+                                                  Command="Slider.IncreaseLarge"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource SliderThumb}"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                    <CheckBox x:Name="NotificationsCheck" Content="Threshold notifications (75%, 90%)"
-                              Foreground="White" FontSize="11" Margin="0,0,0,8"/>
-                    <CheckBox x:Name="NotifyResetCheck" Content="Notify on limit reset"
-                              Foreground="White" FontSize="11" Margin="0,0,0,8"/>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#262626"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="#4A4A4A"/>
+            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Right"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" CornerRadius="4" BorderThickness="1"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                    <Border Height="1" Background="#333333" Margin="0,4,0,8"/>
+        <Style x:Key="FlatButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="18,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="5" BorderThickness="1"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
 
-                    <CheckBox x:Name="StartupCheck" Content="Run at startup"
-                              Foreground="White" FontSize="11" Margin="0,0,0,8"/>
-                    <CheckBox x:Name="DesktopShortcutCheck" Content="Desktop shortcut"
-                              Foreground="White" FontSize="11" Margin="0,0,0,8"/>
+    <!-- Okraj kolem okna = místo pro stín (SettingsWindow.ShadowMargin). Stín je na samostatném
+         Borderu za obsahem, aby DropShadowEffect nerozmazával text. -->
+    <Grid Margin="14">
+        <Border CornerRadius="10" Background="{StaticResource WindowBg}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20" ShadowDepth="3" Direction="270" Opacity="0.55" Color="Black"/>
+            </Border.Effect>
+        </Border>
+        <Border CornerRadius="10" Background="{StaticResource WindowBg}"
+                BorderBrush="{StaticResource WindowBorder}" BorderThickness="1"
+                Padding="16,14,16,14"
+                MouseLeftButtonDown="Border_MouseLeftButtonDown">
+            <StackPanel Width="290">
+                <!-- Hlavička -->
+                <Grid Margin="0,0,0,14">
+                    <TextBlock Text="Settings" Foreground="{StaticResource TextBrush}"
+                               FontSize="16" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="VersionText" Style="{StaticResource Caption}"
+                               HorizontalAlignment="Right"/>
+                </Grid>
 
-                    <StackPanel x:Name="ChartWindowsPanel"/>
+                <!-- Zobrazení -->
+                <TextBlock Text="Display" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <CheckBox x:Name="ShowClaudeCheck" Content="Claude" Style="{StaticResource ToggleRow}"/>
+                        <CheckBox x:Name="ShowCodexCheck" Content="Codex" Style="{StaticResource ToggleRow}"/>
+                        <Border Height="1" Background="{StaticResource CardBorder}" Margin="0,4"/>
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="52"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Tile width (px)" Foreground="{StaticResource TextBrush}" FontSize="12"
+                                       VerticalAlignment="Center"/>
+                            <TextBox x:Name="TileWidthBox" Grid.Column="1" Height="22"/>
+                        </Grid>
+                        <CheckBox x:Name="PrimaryMonitorOnlyCheck" Style="{StaticResource ToggleRow}">
+                            <StackPanel>
+                                <TextBlock Text="Primary monitor only"/>
+                                <TextBlock Text="Takes effect after restart" Foreground="{StaticResource SubTextBrush}"
+                                           FontSize="10"/>
+                            </StackPanel>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Plovoucí režim -->
+                <TextBlock Text="Floating window" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <CheckBox x:Name="FloatingModeCheck" Style="{StaticResource ToggleRow}">
+                            <StackPanel>
+                                <TextBlock Text="Floating mode"/>
+                                <TextBlock Text="Drag anywhere · always on top" Foreground="{StaticResource SubTextBrush}"
+                                           FontSize="10"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <StackPanel x:Name="FloatingOptions">
+                        <Grid Margin="0,6,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="38"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Background" Style="{StaticResource Caption}"/>
+                            <Slider x:Name="BgOpacitySlider" Grid.Column="1" Minimum="0" Maximum="100"
+                                    SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="BgOpacityText" Grid.Column="2" Style="{StaticResource Caption}"
+                                       Foreground="{StaticResource TextBrush}" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Grid Margin="0,2,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="38"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Window" Style="{StaticResource Caption}"/>
+                            <Slider x:Name="WindowOpacitySlider" Grid.Column="1" Minimum="20" Maximum="100"
+                                    SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="WindowOpacityText" Grid.Column="2" Style="{StaticResource Caption}"
+                                       Foreground="{StaticResource TextBrush}" HorizontalAlignment="Right"/>
+                        </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Limity (plní se v kódu, až jsou známé labely) -->
+                <StackPanel x:Name="LimitsCard" Visibility="Collapsed">
+                    <TextBlock Text="Limits" Style="{StaticResource SectionHeader}"/>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel x:Name="LimitsPanel"/>
+                    </Border>
                 </StackPanel>
 
-                <!-- COLUMN 2: Toggl Track -->
-                <StackPanel Grid.Column="2">
-                    <Grid Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Toggl Track" Foreground="White" FontSize="12"
-                                   FontWeight="SemiBold" Grid.Column="0" VerticalAlignment="Center"/>
-                        <Button x:Name="TogglRefreshButton" Content="↻ Refresh" Grid.Column="1"
-                                Padding="8,2" FontSize="10" Cursor="Hand"
-                                Background="#333333" Foreground="White" BorderBrush="#555555"
-                                ToolTip="Force refresh now (same as double-click on tile)"/>
-                    </Grid>
+                <!-- Ostatní -->
+                <TextBlock Text="Notifications &amp; startup" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <CheckBox x:Name="NotificationsCheck" Content="Alert at 75% and 90%"
+                                  Style="{StaticResource ToggleRow}"/>
+                        <CheckBox x:Name="NotifyResetCheck" Content="Notify on limit reset"
+                                  Style="{StaticResource ToggleRow}"/>
+                        <CheckBox x:Name="StartupCheck" Content="Run at startup"
+                                  Style="{StaticResource ToggleRow}"/>
+                    </StackPanel>
+                </Border>
 
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="API key" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" Grid.Column="0"/>
-                        <PasswordBox x:Name="TogglApiKeyBox" Grid.Column="1"
-                                     Background="#2A2A2A" Foreground="White"
-                                     BorderBrush="#555555" FontSize="10" Padding="4,2"/>
-                    </Grid>
-                    <TextBlock x:Name="TogglStatusText" Foreground="#888888" FontSize="9" Margin="0,0,0,6"/>
-
-                    <Grid x:Name="TogglTargetRow" Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="80"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Monthly target (Kč)" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Grid.Column="0"/>
-                        <TextBox x:Name="TogglTargetBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right"/>
-                        <PasswordBox x:Name="TogglTargetPasswordBox" Grid.Column="1"
-                                     Background="#2A2A2A" Foreground="White"
-                                     BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                     HorizontalContentAlignment="Right"
-                                     Visibility="Collapsed"/>
-                    </Grid>
-
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="40"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="40"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Workday hours (start–end)" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Grid.Column="0"/>
-                        <TextBox x:Name="WorkdayStartBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right" ToolTip="0–24, decimals OK (e.g. 8.5)"/>
-                        <TextBlock Text="–" Grid.Column="2" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                        <TextBox x:Name="WorkdayEndBox" Grid.Column="3"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 HorizontalContentAlignment="Right" ToolTip="0–24, decimals OK"/>
-                    </Grid>
-
-                    <TextBlock x:Name="TogglProjectsLabel" Text="Project rates (Kč/h)" Foreground="White"
-                               FontSize="11" Margin="0,0,0,4" Visibility="Collapsed"/>
-                    <StackPanel x:Name="TogglProjectsPanel"/>
+                <!-- Patička -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
+                    <Button x:Name="QuitButton" Content="Quit" Style="{StaticResource FlatButton}"
+                            Background="Transparent" BorderBrush="#8A4A4A" Foreground="#FF9A90"
+                            Margin="0,0,8,0" ToolTip="Exit the widget"/>
+                    <Button x:Name="CloseButton" Content="Close" Style="{StaticResource FlatButton}"
+                            Background="{StaticResource AccentBrush}" BorderBrush="{StaticResource AccentBrush}"/>
                 </StackPanel>
-
-                <!-- COLUMN 3: JIRA -->
-                <StackPanel Grid.Column="4">
-                    <Grid Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="JIRA" Foreground="White" FontSize="12"
-                                   FontWeight="SemiBold" Grid.Column="0" VerticalAlignment="Center"/>
-                        <Button x:Name="JiraRefreshButton" Content="↻ Refresh" Grid.Column="1"
-                                Padding="8,2" FontSize="10" Cursor="Hand"
-                                Background="#333333" Foreground="White" BorderBrush="#555555"
-                                ToolTip="Force refresh now (same as double-click on tile)"/>
-                    </Grid>
-
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Site URL" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" Grid.Column="0"/>
-                        <TextBox x:Name="JiraUrlBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                 ToolTip="e.g. https://yourcompany.atlassian.net"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Email" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" Grid.Column="0"/>
-                        <TextBox x:Name="JiraEmailBox" Grid.Column="1"
-                                 Background="#2A2A2A" Foreground="White"
-                                 BorderBrush="#555555" FontSize="10" Padding="4,2"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="API token" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" Grid.Column="0"/>
-                        <PasswordBox x:Name="JiraTokenBox" Grid.Column="1"
-                                     Background="#2A2A2A" Foreground="White"
-                                     BorderBrush="#555555" FontSize="10" Padding="4,2"/>
-                    </Grid>
-                    <TextBlock x:Name="JiraStatusText" Foreground="#888888" FontSize="9" Margin="0,0,0,6"/>
-
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Project" Foreground="#CCCCCC" FontSize="10"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" Grid.Column="0"/>
-                        <ComboBox x:Name="JiraProjectCombo" Grid.Column="1"
-                                  Background="#2A2A2A" Foreground="White"
-                                  BorderBrush="#555555" FontSize="10" Padding="4,2"
-                                  ToolTip="Select JIRA project (loaded after credentials are valid)">
-                            <ComboBox.ItemContainerStyle>
-                                <Style TargetType="ComboBoxItem">
-                                    <Setter Property="Background" Value="#2A2A2A"/>
-                                    <Setter Property="Foreground" Value="White"/>
-                                    <Setter Property="Padding" Value="6,3"/>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsHighlighted" Value="True">
-                                            <Setter Property="Background" Value="#3A3A3A"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </ComboBox.ItemContainerStyle>
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Display}" Foreground="White"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                    </Grid>
-
-                    <TextBlock x:Name="JiraDevsLabel" Text="Compare with developers" Foreground="White"
-                               FontSize="11" Margin="0,8,0,4" Visibility="Collapsed"/>
-                    <StackPanel x:Name="JiraDevsPanel"/>
-                </StackPanel>
-            </Grid>
-
-            <Border Height="1" Background="#333333" Margin="0,12,0,8"/>
-
-            <Grid>
-                <TextBlock x:Name="VersionText" Foreground="#555555" FontSize="9"
-                           VerticalAlignment="Center"/>
-                <Button x:Name="CloseButton" Content="Close" HorizontalAlignment="Right"
-                        Padding="16,4" FontSize="11" Cursor="Hand"
-                        Background="#333333" Foreground="White" BorderBrush="#555555"/>
-            </Grid>
-        </StackPanel>
-    </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>

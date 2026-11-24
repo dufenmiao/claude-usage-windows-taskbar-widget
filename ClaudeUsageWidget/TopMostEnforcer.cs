@@ -51,6 +51,7 @@ internal sealed class TopMostEnforcer : IDisposable
     private static readonly IntPtr HwndTopmost = new(-1);
     private const uint WM_QUIT = 0x0012;
     private const uint WM_USER = 0x0400;
+    private const uint WM_REASSERT = WM_USER + 1; // jen SetWindowPos, bez dalšího plánování
     private const uint EventSystemForeground = 0x0003;
     private const uint WinEventOutOfContext = 0x0000;
     private const uint SwpNoMove = 0x0002;
@@ -88,6 +89,12 @@ internal sealed class TopMostEnforcer : IDisposable
             if (msg.message == WM_USER)
             {
                 SetWindowPos(_hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+                ScheduleFollowUps();
+                continue;
+            }
+            if (msg.message == WM_REASSERT)
+            {
+                SetWindowPos(_hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
                 continue;
             }
             TranslateMessage(ref msg);
@@ -101,6 +108,26 @@ internal sealed class TopMostEnforcer : IDisposable
     internal void Resume() => _paused = false;
 
     private void RequestTopmost() => PostThreadMessage(_threadId, WM_USER, IntPtr.Zero, IntPtr.Zero);
+
+    // Taskbar se po aktivaci (klik do něj) vytáhne nahoru až chvíli PO foreground eventu,
+    // takže jednorázové SetWindowPos prohraje závod a widget zůstane schovaný pod taskbarem.
+    // Proto po každém eventu ještě několikrát se zpožděním zopakujeme.
+    private static readonly int[] FollowUpDelaysMs = [100, 250, 600, 1200];
+
+    private void ScheduleFollowUps()
+    {
+        _ = Task.Run(async () =>
+        {
+            int elapsed = 0;
+            foreach (var at in FollowUpDelaysMs)
+            {
+                await Task.Delay(at - elapsed);
+                elapsed = at;
+                if (_disposed || _paused) return;
+                PostThreadMessage(_threadId, WM_REASSERT, IntPtr.Zero, IntPtr.Zero);
+            }
+        });
+    }
 
     private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr hwnd,
         int idObject, int idChild, uint idEventThread, uint dwmsEventTime)
