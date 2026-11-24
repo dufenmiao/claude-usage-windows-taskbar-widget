@@ -28,16 +28,16 @@ One row per usage limit, Codex first, then Claude:
 - **Percent** — how much of the limit is used
 - **Countdown** — time until the limit resets
 
-If an account can't be read, its row shows a red **Error**; hover it to see the reason. Double-click the widget to refresh immediately; otherwise it refreshes every minute.
+If an account can't be read, its row shows a red **Error**; hover it to see the reason. Double-click the docked widget to refresh immediately; otherwise it refreshes every minute.
 
 ## Settings
 
-Right-click the widget to open Settings (it pops up right above the widget):
+Right-click the widget to open Settings — in floating mode, Ctrl + right-click (it pops up right above the widget):
 
 - **Claude / Codex** — show or hide each service
 - **Tile width** — widget width in px
 - **Primary monitor only** — don't show on secondary taskbars (applies after restart)
-- **Floating mode** — detach the widget from the taskbar: drag it anywhere, it stays on top of other windows. Background and whole-window opacity are adjustable.
+- **Floating mode** — detach the widget from the taskbar; it stays on top of other windows and is click-through, so clicks, hover and scrolling go to the app underneath. Hold **Ctrl** to interact with it (a blue outline appears): Ctrl + right-drag moves it, Ctrl + right-click opens Settings; the left button is ignored. Size, background and whole-window opacity are adjustable.
 - **Limits** — hide individual rows (e.g. Codex 5h)
 - **Notifications** — toast at 75% / 90%, and when a limit resets
 - **Run at startup**

@@ -248,7 +248,7 @@
                         <CheckBox x:Name="FloatingModeCheck" Style="{StaticResource ToggleRow}">
                             <StackPanel>
                                 <TextBlock Text="Floating mode"/>
-                                <TextBlock Text="Drag anywhere · always on top" Foreground="{StaticResource SubTextBrush}"
+                                <TextBlock Text="Click-through · hold Ctrl to interact" Foreground="{StaticResource SubTextBrush}"
                                            FontSize="10"/>
                             </StackPanel>
                         </CheckBox>

@@ -60,6 +60,9 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+
     private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -138,10 +141,13 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         RootBorder.Child = _panel;
-        RootBorder.MouseLeftButtonDown += OnFloatingDrag;
+        RootBorder.MouseRightButtonDown += OnRightButtonDown;
+        RootBorder.MouseMove += OnRightDragMove;
+        RootBorder.LostMouseCapture += (_, _) => EndRightDrag(save: true);
         _panel.MouseLeftButtonDown += (_, e) =>
         {
-            if (e.ClickCount == 2) _ = RefreshAllAsync(force: true);
+            // Floating mode ignores the left button entirely; docked: double-click refreshes.
+            if (!IsFloating && e.ClickCount == 2) _ = RefreshAllAsync(force: true);
         };
 
         ApplyFloatingAppearance();
@@ -177,9 +183,11 @@ public partial class MainWindow : Window
             System.Diagnostics.ProcessPriorityClass.BelowNormal;
 
         _topMostEnforcer = new TopMostEnforcer(hwnd);
+        UpdateCtrlMode();
 
         Closed += (_, _) =>
         {
+            _ctrlTimer?.Stop();
             if (!_isPrimary)
                 UsageUpdated -= OnSharedUsageUpdated;
             SettingsStore.VisibilityChanged -= OnSettingsChanged;
@@ -367,7 +375,66 @@ public partial class MainWindow : Window
         if (IsLoaded) PositionWindow();
     }
 
-    private void OnRightClick(object sender, MouseButtonEventArgs e) => OpenSettings();
+    // ── Right button: click = open Settings, hold + drag (floating only) = move ───
+
+    private POINT? _rightDownCursor;   // cursor at right-button down (physical px)
+    private RECT _rightDownWindow;     // window rect at right-button down
+    private bool _rightDragMoved;
+    private const int DragThresholdPx = 4;
+
+    private void OnRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!IsFloating) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (!GetCursorPos(out var p) || !GetWindowRect(hwnd, out var r)) return;
+        _rightDownCursor = p;
+        _rightDownWindow = r;
+        _rightDragMoved = false;
+        RootBorder.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void OnRightDragMove(object sender, MouseEventArgs e)
+    {
+        if (_rightDownCursor is not { } start || e.RightButton != MouseButtonState.Pressed) return;
+        if (!GetCursorPos(out var p)) return;
+        int dx = p.X - start.X, dy = p.Y - start.Y;
+        if (!_rightDragMoved)
+        {
+            if (Math.Abs(dx) < DragThresholdPx && Math.Abs(dy) < DragThresholdPx) return;
+            _rightDragMoved = true;
+            _dragging = true; // keeps PositionWindow (tray watch timer) from snapping it back
+        }
+        MoveTo(_rightDownWindow.Left + dx, _rightDownWindow.Top + dy);
+    }
+
+    private void OnRightClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        bool wasDrag = _rightDragMoved;
+        EndRightDrag(save: true);
+        if (!wasDrag) OpenSettings();
+    }
+
+    /// <summary>Finishes a right-button drag; after a real move, keeps the window on-screen and saves its position.</summary>
+    private void EndRightDrag(bool save)
+    {
+        if (_rightDownCursor == null) return;
+        bool moved = _rightDragMoved;
+        _rightDownCursor = null;   // clear first: ReleaseMouseCapture re-enters via LostMouseCapture
+        _rightDragMoved = false;
+        _dragging = false;
+        if (RootBorder.IsMouseCaptured) RootBorder.ReleaseMouseCapture();
+
+        if (!save || !moved) return;
+        if (!GetWindowRect(new WindowInteropHelper(this).Handle, out RECT r)) return;
+        var (x, y) = ClampToWorkArea(r.Left, r.Top);
+        if (x != r.Left || y != r.Top) MoveTo(x, y);
+        var settings = SettingsStore.Instance;
+        settings.FloatingX = x;
+        settings.FloatingY = y;
+        settings.Save();
+    }
 
     private void OpenSettings()
     {
@@ -414,7 +481,8 @@ public partial class MainWindow : Window
     }
 
     // ── Floating mode ─────────────────────────────────────────────────────────────
-    // Primary window only; the widget is freely draggable and stays above other windows (Topmost + TopMostEnforcer).
+    // Primary window only; click-through unless Ctrl is held, moved by Ctrl + right-drag, and stays above other
+    // windows (Topmost + TopMostEnforcer).
 
     private bool IsFloating => _isPrimary && SettingsStore.Instance.FloatingMode;
 
@@ -428,26 +496,69 @@ public partial class MainWindow : Window
             ? new SolidColorBrush(Color.FromArgb(bgAlpha, 0x1C, 0x1C, 0x1C))
             : null;
         Opacity = IsFloating ? settings.FloatingWindowOpacity / 100.0 : 1.0;
+        // Floating: 1px outline, transparent until Ctrl is held (see UpdateCtrlMode).
+        RootBorder.BorderThickness = new Thickness(IsFloating ? 1 : 0);
 #if DEBUG
         _panel.Background = IsFloating ? null : new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x00, 0xFF));
 #endif
+        UpdateCtrlMode();
     }
 
-    private void OnFloatingDrag(object sender, MouseButtonEventArgs e)
-    {
-        if (!IsFloating || e.ClickCount != 1) return;
-        _dragging = true;
-        try { DragMove(); }
-        catch (InvalidOperationException) { /* button already released */ }
-        finally { _dragging = false; }
+    // ── Ctrl mode (floating only) ─────────────────────────────────────────────────
+    // The floating window is fully click-through (WS_EX_TRANSPARENT): clicks, hover and wheel
+    // go to whatever is underneath. Only while Ctrl is held does it accept the mouse
+    // (right-drag = move, right-click = Settings). A cheap 50 ms poll of the Ctrl key state
+    // toggles this — no global mouse hook needed. A drag in progress stays interactive until
+    // the button is released, even if Ctrl is let go first.
 
-        if (GetWindowRect(new WindowInteropHelper(this).Handle, out RECT r))
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private const int VK_CONTROL = 0x11;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private static readonly Brush CtrlOutlineBrush = new SolidColorBrush(Color.FromRgb(0x4C, 0x8D, 0xFF));
+
+    private DispatcherTimer? _ctrlTimer;
+    private bool? _clickThrough; // last applied state (null = never applied)
+
+    /// <summary>Starts/stops the Ctrl poll for the current mode and applies the matching click-through state.</summary>
+    private void UpdateCtrlMode()
+    {
+        if (IsFloating)
         {
-            var settings = SettingsStore.Instance;
-            settings.FloatingX = r.Left;
-            settings.FloatingY = r.Top;
-            settings.Save();
+            if (_ctrlTimer == null)
+            {
+                _ctrlTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+                _ctrlTimer.Tick += (_, _) => ApplyCtrlState();
+            }
+            _ctrlTimer.Start();
+            ApplyCtrlState();
         }
+        else
+        {
+            _ctrlTimer?.Stop();
+            SetClickThrough(false);
+            RootBorder.BorderBrush = null;
+        }
+    }
+
+    private void ApplyCtrlState()
+    {
+        bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool interactive = ctrlDown || _rightDownCursor != null;
+        SetClickThrough(!interactive);
+        RootBorder.BorderBrush = interactive ? CtrlOutlineBrush : Brushes.Transparent;
+    }
+
+    private void SetClickThrough(bool on)
+    {
+        if (_clickThrough == on) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        int style = GetWindowLong(hwnd, GWL_EXSTYLE);
+        style = on ? style | WS_EX_TRANSPARENT : style & ~WS_EX_TRANSPARENT;
+        SetWindowLong(hwnd, GWL_EXSTYLE, style);
+        _clickThrough = on;
     }
 
     private void PositionFloating()
