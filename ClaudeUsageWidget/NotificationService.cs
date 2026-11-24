@@ -1,6 +1,3 @@
-using Windows.Data.Xml.Dom;
-using Windows.UI.Notifications;
-
 namespace ClaudeUsageWidgetProvider;
 
 internal sealed class NotificationService
@@ -65,30 +62,47 @@ internal sealed class NotificationService
         }
     }
 
+    /// <summary>
+    /// Notification via a balloon tip on a temporary tray icon — Windows 10/11 shows it as a regular toast.
+    /// (Previously WinRT ToastNotification, but that pulled 25 MB of Windows SDK projection into the build.)
+    /// The icon is removed once the balloon closes/expires. Called on the UI thread.
+    /// </summary>
     private static void ShowToast(string title, string body)
     {
         try
         {
-            var xml = new XmlDocument();
-            xml.LoadXml($"""
-                <toast>
-                  <visual>
-                    <binding template="ToastGeneric">
-                      <text>{EscapeXml(title)}</text>
-                      <text>{EscapeXml(body)}</text>
-                    </binding>
-                  </visual>
-                </toast>
-                """);
+            var icon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = AppIcon,
+                Text = "Claude Usage Widget",
+                Visible = true
+            };
 
-            var toast = new ToastNotification(xml);
-            ToastNotificationManager.CreateToastNotifier("ClaudeUsageWidget").Show(toast);
+            bool disposed = false;
+            void Cleanup()
+            {
+                if (disposed) return;
+                disposed = true;
+                icon.Visible = false;
+                icon.Dispose();
+            }
+
+            icon.BalloonTipClosed += (_, _) => Cleanup();
+            icon.BalloonTipClicked += (_, _) => Cleanup();
+            icon.ShowBalloonTip(10_000, title, body, System.Windows.Forms.ToolTipIcon.Warning);
+
+            // Safety net: if Windows drops the balloon without an event, remove the icon after a while anyway.
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            timer.Tick += (_, _) => { timer.Stop(); Cleanup(); };
+            timer.Start();
         }
         catch { }
     }
 
-    private static string EscapeXml(string s) =>
-        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    private static System.Drawing.Icon? _appIcon;
+    private static System.Drawing.Icon AppIcon =>
+        _appIcon ??= (Environment.ProcessPath is { } exe ? System.Drawing.Icon.ExtractAssociatedIcon(exe) : null)
+                     ?? System.Drawing.SystemIcons.Information;
 
     private static string FormatLabel(string apiLabel)
     {

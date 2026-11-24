@@ -6,8 +6,8 @@ using System.Windows.Media.Imaging;
 namespace ClaudeUsageWidgetProvider;
 
 /// <summary>
-/// Jedna dlaždice, která skládá limity více účtů (Codex + Claude) pod sebe:
-/// každý řádek = ikona služby + barevná tečka, procento a odpočet do resetu.
+/// A single tile that stacks the limits of several accounts (Codex + Claude):
+/// each row = service icon + colored dot, percent and countdown to reset.
 /// </summary>
 internal sealed class CombinedPanel : UserControl
 {
@@ -57,8 +57,8 @@ internal sealed class CombinedPanel : UserControl
 
     private FrameworkElement BuildRow(Row row)
     {
-        // [ikona] [barevná tečka] [procento] [odpočet do resetu]. Téměř průhledné pozadí (alfa 1), aby řádek
-        // reagoval na myš i mimo text — plně průhledné pixely okna s AllowsTransparency propadají.
+        // [icon] [colored dot] [percent] [countdown to reset]. Nearly transparent background (alpha 1) so the row
+        // reacts to the mouse outside the text too — fully transparent pixels of an AllowsTransparency window let it through.
         var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
@@ -126,7 +126,7 @@ internal sealed class CombinedPanel : UserControl
         FontSize = 9
     };
 
-    /// <summary>Text v přirozené velikosti, který se jen zmenšuje (nikdy nezvětšuje), když se nevejde.</summary>
+    /// <summary>Text at its natural size that only shrinks (never grows) when it doesn't fit.</summary>
     private static Viewbox WrapInShrinkingViewbox(TextBlock text, HorizontalAlignment align) => new()
     {
         Stretch = Stretch.Uniform,
@@ -137,19 +137,19 @@ internal sealed class CombinedPanel : UserControl
     };
 
     /// <summary>
-    /// Plynulý přechod barvy podle využití: 0 % zelená → 50 % žlutá → 100 % červená
-    /// (odstín HSV 120° → 0°, plná sytost a jas).
+    /// Smooth color gradient by utilization: 0 % green → 50 % yellow → 100 % red
+    /// (HSV hue 120° → 0°, full saturation and value).
     /// </summary>
     private static Color UsageColor(double utilization)
     {
         double t = Math.Clamp(utilization / 100.0, 0, 1);
-        double hue = 120.0 * (1 - t);          // 120 = zelená, 0 = červená
+        double hue = 120.0 * (1 - t);          // 120 = green, 0 = red
         double x = 1 - Math.Abs(hue / 60.0 % 2 - 1);
         (double r, double g) = hue >= 60 ? (x, 1.0) : (1.0, x);
         return Color.FromRgb((byte)(r * 255), (byte)(g * 255), 0x30);
     }
 
-    /// <summary>Stejné jako TimeFormatter.FormatResetTime, jen bez prefixu "in " ("5h 41m").</summary>
+    /// <summary>Same as TimeFormatter.FormatResetTime, just without the "in " prefix ("5h 41m").</summary>
     private static string FormatCountdown(DateTimeOffset resetsAt)
     {
         var text = TimeFormatter.FormatResetTime(resetsAt);

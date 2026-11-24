@@ -74,7 +74,7 @@ internal class App : Application
         _mutex = new Mutex(initiallyOwned: true, "Local\\ClaudeUsageWidget", out bool createdNew);
         if (!createdNew)
         {
-            // Předchozí instance běží — zabij ji
+            // A previous instance is running — kill it
             var currentId = Environment.ProcessId;
             var exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
             foreach (var p in Process.GetProcessesByName(exeName))
@@ -82,9 +82,9 @@ internal class App : Application
                 if (p.Id == currentId) continue;
                 try { p.Kill(); p.WaitForExit(2000); } catch { }
             }
-            // Předchozí instance je mrtvá — získej Mutex
+            // The previous instance is dead — acquire the mutex
             try { _mutex.WaitOne(3000); }
-            catch (AbandonedMutexException) { /* ok — předchozí crashla, Mutex je náš */ }
+            catch (AbandonedMutexException) { /* ok — the previous one crashed, the mutex is ours */ }
         }
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -97,14 +97,14 @@ internal class App : Application
 
         var primaryHwnd = FindWindow("Shell_TrayWnd", null);
 
-        // Okno UKÁZAT IHNED — bez Claude účtů. Credential loading volá wsl.exe (1-5s cold start),
-        // synchronní načtení by zdrželo zobrazení widgetu o několik sekund.
+        // SHOW the window IMMEDIATELY — without accounts. Credential loading calls wsl.exe (1-5s cold start);
+        // loading synchronously would delay showing the widget by several seconds.
         var primaryWindow = new MainWindow(primaryHwnd, isPrimary: true);
         MainWindow = primaryWindow;
         primaryWindow.Show();
 
         var secondaryWindows = new List<MainWindow>();
-        // PrimaryMonitorOnly: widget jen na hlavním taskbaru, sekundární monitory přeskočit.
+        // PrimaryMonitorOnly: widget on the main taskbar only, skip secondary monitors.
         if (!SettingsStore.Instance.PrimaryMonitorOnly)
         EnumWindows((hwnd, _) =>
         {
@@ -119,7 +119,7 @@ internal class App : Application
             return true;
         }, IntPtr.Zero);
 
-        // Asynchronní načtení credentials → push do všech oken
+        // Load credentials asynchronously → push them to all windows
         _ = Task.Run(async () =>
         {
             List<AccountInfo> accounts;

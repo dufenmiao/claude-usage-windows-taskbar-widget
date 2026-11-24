@@ -14,21 +14,21 @@ internal sealed class SettingsStore
 
     public bool ShowClaude { get; set; } = true;
     public bool ShowCodex { get; set; } = true;
-    // Widget jen na hlavním monitoru (projeví se po restartu aplikace).
+    // Show the widget on the primary monitor only (applies after an app restart).
     public bool PrimaryMonitorOnly { get; set; } = true;
 
     public const double DefaultTileWidth = 120;
     public double TileWidth { get; set; } = DefaultTileWidth;
 
-    // Plovoucí režim: widget volně přetažitelný kamkoli na obrazovce (pozice v fyzických px).
+    // Floating mode: widget can be dragged anywhere on screen (position in physical px).
     public bool FloatingMode { get; set; }
     public int FloatingX { get; set; } = int.MinValue;
     public int FloatingY { get; set; } = int.MinValue;
-    // Průhlednost v plovoucím režimu (0–100 %): pozadí dlaždice a celé okno.
+    // Opacity in floating mode (0–100 %): tile background and the whole window.
     public int FloatingBackgroundOpacity { get; set; } = 90;
     public int FloatingWindowOpacity { get; set; } = 100;
 
-    // Labely řádků, které uživatel skryl (e.g. "session-5h")
+    // Labels of rows the user has hidden (e.g. "session-5h")
     public HashSet<string> HiddenLimits { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static event Action? VisibilityChanged;
@@ -36,7 +36,7 @@ internal sealed class SettingsStore
 
     public static event Action? KnownLabelsChanged;
 
-    // Labely limitů viděné za běhu (label → "Claude / unified-7d") — pro přepínače v Settings.
+    // Limit labels seen at runtime (label → "Claude / unified-7d") — for the toggles in Settings.
     private readonly Dictionary<string, string> _knownLabels = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsLimitHidden(string label) => HiddenLimits.Contains(label);
@@ -77,7 +77,7 @@ internal sealed class SettingsStore
             ShowClaude = ReadBool(key, "ShowClaude", true);
             ShowCodex = ReadBool(key, "ShowCodex", true);
             PrimaryMonitorOnly = ReadBool(key, "PrimaryMonitorOnly", true);
-            // TileWidth nahradil ClaudeWidth/CodexWidth — starší nastavení převezmeme.
+            // TileWidth replaced ClaudeWidth/CodexWidth — carry over the older setting.
             TileWidth = ParseWidth(key.GetValue("TileWidth") ?? key.GetValue("ClaudeWidth"), DefaultTileWidth);
             FloatingMode = ReadBool(key, "FloatingMode", false);
             FloatingX = (int)(key.GetValue("FloatingX", int.MinValue) ?? int.MinValue);

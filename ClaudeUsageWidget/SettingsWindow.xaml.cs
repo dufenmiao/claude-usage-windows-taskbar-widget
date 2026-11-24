@@ -10,7 +10,7 @@ public partial class SettingsWindow : Window
     private const string RunRegistryValue = "ClaudeUsageWidget";
     private bool _closing;
 
-    /// <summary>Průhledný okraj kolem okna pro stín (Grid Margin v XAML) — MainWindow ho odečítá při zarovnání.</summary>
+    /// <summary>Transparent margin around the window for the shadow (Grid Margin in XAML) — MainWindow subtracts it when aligning.</summary>
     internal const double ShadowMargin = 14;
     private readonly Dictionary<string, CheckBox> _limitShowChecks = new();
 
@@ -77,7 +77,7 @@ public partial class SettingsWindow : Window
         SettingsStore.RaiseVisibilityChanged();
     }
 
-    /// <summary>Slidery průhlednosti mají smysl jen v plovoucím režimu — jinak ztlumené a neaktivní.</summary>
+    /// <summary>Opacity sliders only matter in floating mode — otherwise dimmed and disabled.</summary>
     private void UpdateFloatingOptionsState()
     {
         bool on = FloatingModeCheck.IsChecked == true;
@@ -123,7 +123,7 @@ public partial class SettingsWindow : Window
         BuildLimitsUI(SettingsStore.Instance);
     });
 
-    /// <summary>Jeden přepínač na každý známý limit (např. "Codex 5h") — skryje/zobrazí jeho řádek.</summary>
+    /// <summary>One toggle per known limit (e.g. "Codex 5h") — hides/shows its row.</summary>
     private void BuildLimitsUI(SettingsStore settings)
     {
         var labels = settings.GetKnownLabels();
@@ -173,7 +173,7 @@ public partial class SettingsWindow : Window
         }
 
         settings.Save();
-        // Změna HiddenLimits → MainWindow musí překreslit řádky
+        // HiddenLimits changed → MainWindow must redraw the rows
         SettingsStore.RaiseVisibilityChanged();
     }
 

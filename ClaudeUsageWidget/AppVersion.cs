@@ -4,7 +4,7 @@ namespace ClaudeUsageWidgetProvider;
 
 internal static class AppVersion
 {
-    /// <summary>"0.1.0" → "0.1"; patch se zobrazí jen když je nenulový.</summary>
+    /// <summary>"0.1.0" → "0.1"; the patch number is shown only when non-zero.</summary>
     public static string Current
     {
         get

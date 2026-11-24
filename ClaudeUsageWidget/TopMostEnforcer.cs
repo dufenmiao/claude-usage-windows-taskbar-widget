@@ -51,7 +51,7 @@ internal sealed class TopMostEnforcer : IDisposable
     private static readonly IntPtr HwndTopmost = new(-1);
     private const uint WM_QUIT = 0x0012;
     private const uint WM_USER = 0x0400;
-    private const uint WM_REASSERT = WM_USER + 1; // jen SetWindowPos, bez dalšího plánování
+    private const uint WM_REASSERT = WM_USER + 1; // SetWindowPos only, no further scheduling
     private const uint EventSystemForeground = 0x0003;
     private const uint WinEventOutOfContext = 0x0000;
     private const uint SwpNoMove = 0x0002;
@@ -109,9 +109,9 @@ internal sealed class TopMostEnforcer : IDisposable
 
     private void RequestTopmost() => PostThreadMessage(_threadId, WM_USER, IntPtr.Zero, IntPtr.Zero);
 
-    // Taskbar se po aktivaci (klik do něj) vytáhne nahoru až chvíli PO foreground eventu,
-    // takže jednorázové SetWindowPos prohraje závod a widget zůstane schovaný pod taskbarem.
-    // Proto po každém eventu ještě několikrát se zpožděním zopakujeme.
+    // When the taskbar is activated (clicked), it raises itself a moment AFTER the foreground event,
+    // so a single SetWindowPos loses the race and the widget stays hidden under the taskbar.
+    // So after each event we repeat it a few more times with a delay.
     private static readonly int[] FollowUpDelaysMs = [100, 250, 600, 1200];
 
     private void ScheduleFollowUps()

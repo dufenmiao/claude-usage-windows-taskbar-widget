@@ -10,8 +10,8 @@
         Background="Transparent"
         Height="48"
         Title="Claude Usage Widget">
-  <!-- RootBorder: obsahuje CombinedPanel (vkládá se v kódu). V plovoucím režimu dostane tmavé
-       zaoblené pozadí (čitelnost na libovolném podkladu + chytání myši pro drag). -->
+  <!-- RootBorder: holds the CombinedPanel (inserted in code). In floating mode it gets a dark
+       rounded background (readable on any backdrop + catches the mouse for dragging). -->
   <Border x:Name="RootBorder" CornerRadius="6"
           MouseRightButtonUp="OnRightClick"/>
 </Window>

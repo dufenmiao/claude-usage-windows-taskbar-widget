@@ -10,7 +10,7 @@
         WindowStartupLocation="CenterScreen"
         Title="Claude Usage Widget Settings">
     <Window.Resources>
-        <!-- Paleta (Windows 11 dark) -->
+        <!-- Palette (Windows 11 dark) -->
         <SolidColorBrush x:Key="WindowBg" Color="#2B2B2B"/>
         <SolidColorBrush x:Key="WindowBorder" Color="#404040"/>
         <SolidColorBrush x:Key="CardBg" Color="#333333"/>
@@ -41,7 +41,7 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
-        <!-- Checkbox jako přepínač: text vlevo, switch vpravo -->
+        <!-- Checkbox as a toggle switch: text on the left, switch on the right -->
         <Style x:Key="ToggleRow" TargetType="CheckBox">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             <Setter Property="FontSize" Value="12"/>
@@ -84,7 +84,7 @@
             </Setter>
         </Style>
 
-        <!-- Slider: tenká dráha, vyplněná část v accent barvě, kulatý thumb -->
+        <!-- Slider: thin track, filled part in the accent color, round thumb -->
         <Style x:Key="SliderRepeat" TargetType="RepeatButton">
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="IsTabStop" Value="False"/>
@@ -194,8 +194,8 @@
         </Style>
     </Window.Resources>
 
-    <!-- Okraj kolem okna = místo pro stín (SettingsWindow.ShadowMargin). Stín je na samostatném
-         Borderu za obsahem, aby DropShadowEffect nerozmazával text. -->
+    <!-- Margin around the window = room for the shadow (SettingsWindow.ShadowMargin). The shadow is on a separate
+         Border behind the content so DropShadowEffect doesn't blur the text. -->
     <Grid Margin="14">
         <Border CornerRadius="10" Background="{StaticResource WindowBg}">
             <Border.Effect>
@@ -207,7 +207,7 @@
                 Padding="16,14,16,14"
                 MouseLeftButtonDown="Border_MouseLeftButtonDown">
             <StackPanel Width="290">
-                <!-- Hlavička -->
+                <!-- Header -->
                 <Grid Margin="0,0,0,14">
                     <TextBlock Text="Settings" Foreground="{StaticResource TextBrush}"
                                FontSize="16" FontWeight="SemiBold"/>
@@ -215,7 +215,7 @@
                                HorizontalAlignment="Right"/>
                 </Grid>
 
-                <!-- Zobrazení -->
+                <!-- Display -->
                 <TextBlock Text="Display" Style="{StaticResource SectionHeader}"/>
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
@@ -241,7 +241,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Plovoucí režim -->
+                <!-- Floating mode -->
                 <TextBlock Text="Floating window" Style="{StaticResource SectionHeader}"/>
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
@@ -283,7 +283,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Limity (plní se v kódu, až jsou známé labely) -->
+                <!-- Limits (filled in code once labels are known) -->
                 <StackPanel x:Name="LimitsCard" Visibility="Collapsed">
                     <TextBlock Text="Limits" Style="{StaticResource SectionHeader}"/>
                     <Border Style="{StaticResource Card}">
@@ -291,7 +291,7 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Ostatní -->
+                <!-- Other -->
                 <TextBlock Text="Notifications &amp; startup" Style="{StaticResource SectionHeader}"/>
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
@@ -304,7 +304,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Patička -->
+                <!-- Footer -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
                     <Button x:Name="QuitButton" Content="Quit" Style="{StaticResource FlatButton}"
                             Background="Transparent" BorderBrush="#8A4A4A" Foreground="#FF9A90"

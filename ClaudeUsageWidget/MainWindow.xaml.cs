@@ -8,8 +8,8 @@ using System.Windows.Threading;
 namespace ClaudeUsageWidgetProvider;
 
 /// <summary>
-/// Okno widgetu: jedna dlaždice (CombinedPanel) s řádky Codex + Claude limitů.
-/// Buď dokované v taskbaru vlevo od tray, nebo plovoucí (volně přetažitelné, vždy navrchu).
+/// Widget window: a single tile (CombinedPanel) with rows of Codex + Claude limits.
+/// Either docked in the taskbar left of the tray, or floating (freely draggable, always on top).
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -104,9 +104,9 @@ public partial class MainWindow : Window
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
 
-    // ── Stav ──────────────────────────────────────────────────────────────────────
+    // ── State ─────────────────────────────────────────────────────────────────────
 
-    // accountKey → poslední usage; sdílené mezi okny (primární fetchuje, sekundární jen zobrazují)
+    // accountKey → latest usage; shared between windows (the primary fetches, secondaries only display)
     private static readonly Dictionary<string, UsageData> SharedUsage = [];
     private static event Action? UsageUpdated;
 
@@ -126,7 +126,7 @@ public partial class MainWindow : Window
     private bool _fullscreenMode;
     private bool _visibilityCheckRunning;
     private int _lastTrayWidth;
-    private int _maxTrayWidthPx; // největší viděná šířka tray — viz PositionDocked
+    private int _maxTrayWidthPx; // largest tray width seen so far — see PositionDocked
     private bool _dragging;
     private bool _appliedFloating;
 
@@ -202,7 +202,7 @@ public partial class MainWindow : Window
 
     // ── Data ──────────────────────────────────────────────────────────────────────
 
-    /// <summary>Claude/Codex klienti se doplní po Show() — credential loading (wsl.exe) trvá pár sekund.</summary>
+    /// <summary>Claude/Codex clients are added after Show() — credential loading (wsl.exe) takes a few seconds.</summary>
     internal async Task AddAccountsAsync(List<ClaudeApiClient> clients)
     {
         foreach (var client in clients)
@@ -264,7 +264,7 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>Řádky: nejdřív Codex, pak Claude; každý viditelný limit = jeden řádek. Účet bez dat = chyba nebo spinner.</summary>
+    /// <summary>Rows: Codex first, then Claude; each visible limit = one row. An account without data = error or spinner.</summary>
     private void RenderRows()
     {
         var rows = new List<CombinedPanel.Row>();
@@ -288,7 +288,7 @@ public partial class MainWindow : Window
         _panel.SetRows(rows);
     }
 
-    // ── Timery ────────────────────────────────────────────────────────────────────
+    // ── Timers ────────────────────────────────────────────────────────────────────
 
     private void StartSpinnerTimer()
     {
@@ -312,7 +312,7 @@ public partial class MainWindow : Window
         _refreshTimer.Start();
     }
 
-    /// <summary>Odpočet do resetu se mění i bez nového fetche.</summary>
+    /// <summary>The countdown to reset changes even without a new fetch.</summary>
     private void StartTextTimer()
     {
         _textTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
@@ -332,19 +332,19 @@ public partial class MainWindow : Window
         _trayWatchTimer.Start();
     }
 
-    // ── Nastavení ─────────────────────────────────────────────────────────────────
+    // ── Settings ──────────────────────────────────────────────────────────────────
 
     private void OnSettingsChanged()
     {
         Dispatcher.Invoke(() =>
         {
             bool floatingToggled = IsFloating != _appliedFloating;
-            ApplyFloatingAppearance(); // i kvůli změně průhlednosti
+            ApplyFloatingAppearance(); // also for opacity changes
             if (floatingToggled && !IsFloating) SetTaskbarHeight();
             ApplyLayout();
             RenderRows();
 
-            // Nově zapnutá služba ještě nemá data → hned fetchnout.
+            // A newly enabled service has no data yet → fetch right away.
             if (_isPrimary && _accounts.Any(a => a.LastUsage == null && IsAccountShown(a.Client)))
                 _ = RefreshAllAsync(force: false);
         });
@@ -375,7 +375,7 @@ public partial class MainWindow : Window
         _settingsWindow = new SettingsWindow
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = -10000, // mimo obrazovku, dokud neznáme velikost (SizeToContent)
+            Left = -10000, // off-screen until we know the size (SizeToContent)
             Top = -10000
         };
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
@@ -386,13 +386,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Settings přilepené těsně nad widget, pravé hrany zarovnané. Když se nad widget nevejde
-    /// (widget u horního okraje), dá se pod něj; vodorovně se drží uvnitř virtuální obrazovky.
+    /// Settings sits right above the widget with right edges aligned. If it doesn't fit above
+    /// (widget near the top edge), it goes below; horizontally it is kept inside the virtual screen.
     /// </summary>
     private void PlaceSettingsWindow(Window w)
     {
         const double gap = 6;
-        double m = SettingsWindow.ShadowMargin; // viditelná karta je o m menší než okno
+        double m = SettingsWindow.ShadowMargin; // the visible card is m smaller than the window
         double left = Left + ActualWidth - w.ActualWidth + m;
         double top = Top - w.ActualHeight - gap + m;
         if (top + m < SystemParameters.VirtualScreenTop)
@@ -404,8 +404,8 @@ public partial class MainWindow : Window
         w.Top = top;
     }
 
-    // ── Plovoucí režim ────────────────────────────────────────────────────────────
-    // Jen primární okno; widget je volně přetažitelný a drží se nad ostatními okny (Topmost + TopMostEnforcer).
+    // ── Floating mode ─────────────────────────────────────────────────────────────
+    // Primary window only; the widget is freely draggable and stays above other windows (Topmost + TopMostEnforcer).
 
     private bool IsFloating => _isPrimary && SettingsStore.Instance.FloatingMode;
 
@@ -413,7 +413,7 @@ public partial class MainWindow : Window
     {
         _appliedFloating = IsFloating;
         var settings = SettingsStore.Instance;
-        // Alfa min. 1: plně průhledné pixely okna s AllowsTransparency propadají myší → nešlo by táhnout.
+        // Alpha at least 1: fully transparent pixels of an AllowsTransparency window let the mouse through → dragging wouldn't work.
         byte bgAlpha = (byte)Math.Max(1, settings.FloatingBackgroundOpacity * 255 / 100);
         RootBorder.Background = IsFloating
             ? new SolidColorBrush(Color.FromArgb(bgAlpha, 0x1C, 0x1C, 0x1C))
@@ -429,7 +429,7 @@ public partial class MainWindow : Window
         if (!IsFloating || e.ClickCount != 1) return;
         _dragging = true;
         try { DragMove(); }
-        catch (InvalidOperationException) { /* tlačítko už puštěné */ }
+        catch (InvalidOperationException) { /* button already released */ }
         finally { _dragging = false; }
 
         if (GetWindowRect(new WindowInteropHelper(this).Handle, out RECT r))
@@ -446,7 +446,7 @@ public partial class MainWindow : Window
         var settings = SettingsStore.Instance;
         int x = settings.FloatingX, y = settings.FloatingY;
 
-        // Bez uložené pozice nebo když monitor s uloženou pozicí zmizel → těsně nad dokovanou pozicí v taskbaru.
+        // No saved position, or its monitor is gone → just above the docked position in the taskbar.
         bool valid = x != int.MinValue && y != int.MinValue &&
                      MonitorFromPoint(new POINT { X = x + 10, Y = y + 10 }, MONITOR_DEFAULTTONULL) != IntPtr.Zero;
         if (!valid)
@@ -460,7 +460,7 @@ public partial class MainWindow : Window
         MoveTo(x, y);
     }
 
-    // ── Pozice v taskbaru ─────────────────────────────────────────────────────────
+    // ── Taskbar position ──────────────────────────────────────────────────────────
 
     private void PositionWindow()
     {
@@ -477,8 +477,8 @@ public partial class MainWindow : Window
         double scale = GetMonitorScale();
         int rawTrayWidthPx = GetTrayWidth();
         _lastTrayWidth = rawTrayWidthPx;
-        // Tray se mění např. při přepnutí IME indikátoru (中/英/ENG). Widget se posouvá jen doleva
-        // (když tray naroste), nikdy doprava — jinak při každé změně poskakuje.
+        // The tray width changes e.g. when the IME indicator switches (中/英/ENG). The widget only moves left
+        // (when the tray grows), never right — otherwise it jumps around on every change.
         int trayWidthPx = Math.Max(rawTrayWidthPx, _maxTrayWidthPx);
         _maxTrayWidthPx = trayWidthPx;
 
@@ -490,7 +490,7 @@ public partial class MainWindow : Window
     {
         var myHwnd = new WindowInteropHelper(this).Handle;
         SetWindowPos(myHwnd, IntPtr.Zero, xPx, yPx, 0, 0, SwpNoSize | SwpNoActivate | SwpNoZOrder);
-        // WPF souřadnice (pro umístění Settings)
+        // WPF coordinates (for placing Settings)
         var dpi = VisualTreeHelper.GetDpi(this);
         Left = xPx / dpi.DpiScaleX;
         Top = yPx / dpi.DpiScaleY;
@@ -554,7 +554,7 @@ public partial class MainWindow : Window
         return trayWidth is > 20 and < 600 ? trayWidth : 120;
     }
 
-    // ── Viditelnost (auto-hide taskbar, fullscreen aplikace) ──────────────────────
+    // ── Visibility (auto-hide taskbar, fullscreen apps) ───────────────────────────
 
     private void StartVisibilityTimer()
     {
@@ -572,7 +572,7 @@ public partial class MainWindow : Window
             var (taskbarVisible, fullscreen) = await Task.Run(() =>
                 (IsTaskbarVisible(), IsFullscreenOnMyMonitor()));
 
-            // Plovoucí okno nezávisí na (auto-hide) taskbaru; při fullscreen aplikaci se schová stejně jako dokované.
+            // The floating window doesn't depend on the (auto-hide) taskbar; with a fullscreen app it hides just like the docked one.
             bool shouldShow = (taskbarVisible || IsFloating) && !fullscreen;
 
             if (fullscreen && !_fullscreenMode)

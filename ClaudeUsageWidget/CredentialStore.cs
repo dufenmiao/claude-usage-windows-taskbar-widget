@@ -30,7 +30,7 @@ internal static class CredentialStore
 
     private enum CredOrigin { Wsl, Windows }
 
-    /// <summary>Definice jednoho credential zdroje — kombinace služby, umístění a parseru.</summary>
+    /// <summary>Definition of one credential source — a combination of service, location and parser.</summary>
     private sealed record CredSource(
         ServiceType Service,
         string Label,
@@ -38,9 +38,9 @@ internal static class CredentialStore
         string RelativePath,
         Func<string, OAuthCredential?> Parse);
 
-    // Kanonické pořadí: nativní CLI (claude/codex) má přednost před orchestratorem (hermes).
-    // WSL před Windows — uživatel typicky používá CLI v Linuxu, Windows credential bývá zapomenutý.
-    // "First working wins" — expired se skipuje, dedup vezme prvního přeživšího v tomhle pořadí.
+    // Canonical order: the native CLI (claude/codex) takes precedence over the orchestrator (hermes).
+    // WSL before Windows — users typically run the CLI in Linux; the Windows credential is often stale.
+    // "First working wins" — expired ones are skipped, dedup keeps the first survivor in this order.
     private static readonly CredSource[] AllSources =
     [
         new(ServiceType.Claude, "claude-wsl",           CredOrigin.Wsl,     ".claude/.credentials.json", ParseClaudeRaw),
@@ -55,7 +55,7 @@ internal static class CredentialStore
     private static OAuthCredential? ParseCodexRaw(string json)  => ParseCodexCredentialJson(json, "");
     private static OAuthCredential? ParseHermesRaw(string json) => ParseHermesCredentialJson(json, "");
 
-    /// <summary>Načte raw JSON + jeho kanonickou SourcePath label pro daný zdroj.</summary>
+    /// <summary>Reads the raw JSON plus its canonical SourcePath label for the given source.</summary>
     private static (string Json, string SourcePath)? ReadSource(CredSource src)
     {
         if (src.Origin == CredOrigin.Wsl)
@@ -75,7 +75,7 @@ internal static class CredentialStore
         catch { return null; }
     }
 
-    /// <summary>Sjednocený dedup key per-service. Stejný klíč pro WSL i Windows variantu téhož účtu.</summary>
+    /// <summary>Unified per-service dedup key. Same key for the WSL and Windows variants of the same account.</summary>
     private static string? MakeDedupKey(ServiceType service, OAuthCredential cred)
     {
         if (service == ServiceType.Claude)
@@ -83,10 +83,10 @@ internal static class CredentialStore
             var jwtId = GetJwtClaim(cred.AccessToken, "org_id")
                      ?? GetJwtClaim(cred.AccessToken, "organization_id")
                      ?? GetJwtClaim(cred.AccessToken, "sub");
-            // Opaque token (sk-ant-oat01-...) nemá JWT payload — sjednotíme do jednoho slotu.
+            // Opaque token (sk-ant-oat01-...) has no JWT payload — collapse into a single slot.
             return jwtId != null ? "claude:" + jwtId : "claude:opaque";
         }
-        // Codex JWT vždy obsahuje account_id nebo sub.
+        // A Codex JWT always contains account_id or sub.
         var acctId = GetJwtClaim(cred.AccessToken, "account_id")
                   ?? GetJwtClaim(cred.AccessToken, "sub");
         return acctId != null ? "codex:" + acctId : null;
@@ -95,7 +95,7 @@ internal static class CredentialStore
     public static OAuthCredential? LoadCredential()
         => LoadAllAccounts().FirstOrDefault(a => a.Service == ServiceType.Claude)?.Credential;
 
-    /// <summary>Backward compat pro ClaudeApiClient.RefreshTokenAsync re-read paths.</summary>
+    /// <summary>Backward compat for ClaudeApiClient.RefreshTokenAsync re-read paths.</summary>
     public static List<OAuthCredential> LoadAllCredentials()
         => LoadAllAccounts().Where(a => a.Service == ServiceType.Claude).Select(a => a.Credential).ToList();
 
@@ -202,14 +202,14 @@ internal static class CredentialStore
         return proc.ExitCode == 0 ? output : null;
     }
 
-    /// <summary>Invaliduje cache čtených WSL souborů — voláno po Save, případně při force refresh.</summary>
+    /// <summary>Invalidates the cache of read WSL files — called after Save, or on force refresh.</summary>
     internal static void InvalidateWslCache()
     {
         lock (_wslCacheLock) { _wslFilesCache = null; }
     }
 
-    // Známé WSL distribuce — enumerace UNC rootu (\\wsl.localhost\) v .NET nefunguje, ale podcesty
-    // jako \\wsl.localhost\Ubuntu\home už ano. Probujeme tedy známé názvy v pevném pořadí.
+    // Known WSL distros — enumerating the UNC root (\\wsl.localhost\) doesn't work in .NET, but subpaths
+    // like \\wsl.localhost\Ubuntu\home do. So we probe known names in a fixed order.
     private static readonly string[] KnownWslDistros =
     [
         "Ubuntu",
@@ -222,8 +222,8 @@ internal static class CredentialStore
         "Arch",
     ];
 
-    /// <summary>Pokusí se přečíst WSL credential soubory přímo přes \\wsl.localhost\ share
-    /// (bez wsl.exe). Probuje známé distribuce, u každé enumeruje /home/* a zkouší target soubory.</summary>
+    /// <summary>Tries to read WSL credential files directly via the \\wsl.localhost\ share
+    /// (without wsl.exe). Probes known distros, enumerates /home/* in each and tries the target files.</summary>
     private static bool TryReadViaWslFs(string[] paths, Dictionary<string, string?> result)
     {
         bool anyRead = false;
@@ -235,7 +235,7 @@ internal static class CredentialStore
 
                 string[] userHomes;
                 try { userHomes = Directory.GetDirectories(homeDir); }
-                catch { continue; } // distro neexistuje nebo home není přístupné
+                catch { continue; } // distro doesn't exist or home isn't accessible
 
                 foreach (var userHome in userHomes)
                 {
@@ -251,7 +251,7 @@ internal static class CredentialStore
                             result[path] = File.ReadAllText(fullPath);
                             anyRead = true;
                         }
-                        catch { /* ignore — try další user/distro */ }
+                        catch { /* ignore — try the next user/distro */ }
                     }
                 }
 
@@ -261,8 +261,8 @@ internal static class CredentialStore
         return anyRead;
     }
 
-    // Známé credential cesty čteme jedním wsl.exe voláním — cold start wsl.exe je drahý (1-5s),
-    // bez batchování to vynásobíme počtem souborů. Cache je per-process, invaliduje se až restartem.
+    // Known credential paths are read in a single wsl.exe call — a wsl.exe cold start is expensive (1-5s),
+    // without batching it would be multiplied by the number of files. The cache is per-process, invalidated only by a restart.
     private static readonly string[] WslCredentialPaths =
     [
         "~/.claude/.credentials.json",
@@ -288,13 +288,13 @@ internal static class CredentialStore
         var result = new Dictionary<string, string?>();
         foreach (var p in paths) result[p] = null;
 
-        // 1) Přímý filesystem přes \\wsl$\ (rychlé, neblokuje, nepoužívá vsock interop).
+        // 1) Direct filesystem via \\wsl$\ (fast, non-blocking, doesn't use vsock interop).
         if (TryReadViaWslFs(paths, result)) return result;
 
         if (!File.Exists(WslExe)) return result;
 
         const string marker = "__CRED_MARKER_8f3d2c1e__";
-        // Každý cat je vždy následován markerem — chybějící soubor dá prázdný chunk.
+        // Each cat is always followed by a marker — a missing file yields an empty chunk.
         var script = string.Join("; ", paths.Select(p => $"cat {p} 2>/dev/null; echo {marker}"));
 
         var psi = new ProcessStartInfo
@@ -312,8 +312,8 @@ internal static class CredentialStore
             using var proc = Process.Start(psi);
             if (proc == null) return result;
 
-            // Tvrdý timeout — wsl.exe může viset (vsock chyby, NTFS lock), ReadToEnd by jinak
-            // blokoval navždy. Čteme stdout asynchronně a po 5s celý proces zabijeme.
+            // Hard timeout — wsl.exe can hang (vsock errors, NTFS lock); ReadToEnd would otherwise
+            // block forever. We read stdout asynchronously and kill the whole process after 5s.
             var readTask = proc.StandardOutput.ReadToEndAsync();
             if (!readTask.Wait(TimeSpan.FromSeconds(5)))
             {
@@ -367,8 +367,8 @@ internal static class CredentialStore
         }
     }
 
-    /// <summary>Jediný vstupní bod pro načtení všech účtů. Prochází <see cref="AllSources"/>
-    /// v pevném pořadí, skipuje expired credentials a dedupuje per-account. "First working wins".</summary>
+    /// <summary>Single entry point for loading all accounts. Walks <see cref="AllSources"/>
+    /// in a fixed order, skips expired credentials and dedups per account. "First working wins".</summary>
     public static List<AccountInfo> LoadAllAccounts()
     {
         var result = new List<AccountInfo>();
@@ -383,7 +383,7 @@ internal static class CredentialStore
             if (cred == null || string.IsNullOrEmpty(cred.AccessToken)) continue;
             cred.SourcePath = read.Value.SourcePath;
 
-            if (cred.IsExpired) continue; // skip — možná další zdroj má funkční token
+            if (cred.IsExpired) continue; // skip — another source may have a working token
 
             var key = MakeDedupKey(source.Service, cred);
             if (key == null) continue;
@@ -402,7 +402,7 @@ internal static class CredentialStore
             var doc = JsonNode.Parse(json);
             if (doc == null) return null;
 
-            // Hermes ukládá tokeny v providers.openai-codex.tokens (active_provider určuje, který je aktivní)
+            // Hermes stores tokens in providers.openai-codex.tokens (active_provider says which one is active)
             var providers = doc["providers"] as JsonObject;
             if (providers == null) return null;
 
@@ -502,7 +502,7 @@ internal static class CredentialStore
     {
         if (service == ServiceType.Claude)
         {
-            // Pokus o org_id, fallback na sub (standard JWT claim)
+            // Try org_id, fall back to sub (standard JWT claim)
             var orgId = GetJwtClaim(token, "org_id")
                      ?? GetJwtClaim(token, "organization_id")
                      ?? GetJwtClaim(token, "sub");
@@ -531,14 +531,14 @@ internal static class CredentialStore
         return null;
     }
 
-    /// <summary>Re-čtení credentialu z původní cesty po refresh failure (volá ClaudeApiClient).
-    /// Pokrývá pouze Claude formát — refresh-flow je výhradně Claude věc.</summary>
+    /// <summary>Re-reads the credential from its original path after a refresh failure (called by ClaudeApiClient).
+    /// Covers the Claude format only — the refresh flow is Claude-specific.</summary>
     public static OAuthCredential? LoadCredentialFromPath(string sourcePath)
     {
         string? json;
         if (sourcePath.StartsWith("wsl:"))
         {
-            InvalidateWslCache(); // chceme čerstvý obsah, ne cache ze startu
+            InvalidateWslCache(); // we want fresh content, not the cache from startup
             json = ReadWslFile(sourcePath.Substring("wsl:".Length));
         }
         else

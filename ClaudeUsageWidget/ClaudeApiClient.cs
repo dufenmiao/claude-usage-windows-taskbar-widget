@@ -266,11 +266,11 @@ internal sealed class ClaudeApiClient : IDisposable
 
         var limits = new List<RateLimitEntry>();
 
-        // Labels derivované z response — žádné hardcoded "5h"/"7d", používáme limit_window_seconds.
+        // Labels are derived from the response — no hardcoded "5h"/"7d", we use limit_window_seconds.
         AddRateLimit(limits, doc["rate_limit"], "session");
         AddRateLimit(limits, doc["code_review_rate_limit"], "review");
 
-        // Per-model limity (např. GPT-5.3-Codex-Spark) — name přímo z response.
+        // Per-model limits (e.g. GPT-5.3-Codex-Spark) — name taken straight from the response.
         if (doc["additional_rate_limits"] is JsonArray extras)
         {
             foreach (var item in extras)
